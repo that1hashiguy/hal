@@ -45,6 +45,17 @@
   - Supports `--target primary|twin|both` (default `primary`)
   - Spec: [terraform-agent.md](terraform-agent.md)
 
+- `hal terraform twin`
+  - Aliases: `hal terraform bis`, `hal terraform dup`
+  - Manage a second local TFE instance that runs alongside the primary deployment
+  - Lifecycle actions: `enable`, `disable`, `update`
+  - Spec: [terraform-twin.md](terraform-twin.md)
+
+- `hal terraform saml`
+  - Deploy Authentik IdP and configure TFE SAML SSO (optionally with SCIM provisioning)
+  - Lifecycle actions: `enable`, `disable`, `update`
+  - Spec: [terraform-saml.md](terraform-saml.md)
+
 ## Related Detailed Specs
 - [Terraform API Workflow Spec](../terraform-cli-container-spec.md)
 

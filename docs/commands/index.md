@@ -25,6 +25,8 @@ This index maps the HAL command tree to one spec file per command area.
 - [Vault database](vault-database.md)
 - [Vault aap](vault-aap.md)
 - [Vault os](vault-os.md)
+- [Vault pki](vault-pki.md)
+- [Vault userpass](vault-userpass.md)
 - [Boundary](boundary.md)
 - [Boundary deploy](boundary-deploy.md)
 - [Boundary status](boundary-status.md)
@@ -51,6 +53,8 @@ This index maps the HAL command tree to one spec file per command area.
 - [Terraform vcs-workflow](terraform-workspace.md)
 - [Terraform api-workflow](terraform-cli.md)
 - [Terraform agent](terraform-agent.md)
+- [Terraform twin](terraform-twin.md)
+- [Terraform saml](terraform-saml.md)
 - [Observability](observability.md)
 - [Observability deploy](observability-deploy.md)
 - [Observability status](observability-status.md)
@@ -60,6 +64,9 @@ This index maps the HAL command tree to one spec file per command area.
 - [MCP serve](mcp-serve.md)
 - [MCP status](mcp-status.md)
 - [MCP delete](mcp-down.md)
+- [Creds](creds.md)
+- [Plus](plus.md)
+- [Health](health.md)
 
 ## Command Defaults
 When called without a subcommand, namespaces default to status-style behavior:
@@ -70,6 +77,8 @@ When called without a subcommand, namespaces default to status-style behavior:
 - `hal terraform` / `hal tf` -> `hal terraform status`
 - `hal obs` -> `hal obs status`
 - `hal mcp` -> `hal mcp status`
+- `hal creds` -> `hal creds status`
+- `hal plus` -> `hal plus status`
 
 ## Drift Rule
 If command wiring changes in `cmd/` (`AddCommand(...)`, `Use`, `Aliases`, flags), update the corresponding file in this folder in the same PR.

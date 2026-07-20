@@ -31,5 +31,12 @@ Simulate enterprise Secret Zero CI/CD pipeline auth flow with GitLab JWT.
 
 ## Example
 ```bash
+# Check JWT status
+hal vault jwt
+
+# Enable GitLab JWT auth flow
 hal vault jwt enable
+
+# Reconcile the integration
+hal vault jwt update
 ```

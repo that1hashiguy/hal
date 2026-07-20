@@ -56,6 +56,15 @@
   - Deploy Ubuntu VM and configure OS secret engine for Linux user password management
   - Spec: [vault-os.md](vault-os.md)
 
+- `hal vault pki`
+  - Manage Vault PKI secrets engines (Root CA, Intermediate CA, cert-manager K8s or ACME/Caddy demo)
+  - Spec: [vault-pki.md](vault-pki.md)
+
+- `hal vault userpass`
+  - Alias: `hal vault up`
+  - Configure Vault userpass auth method with a demo user and token metadata
+  - Spec: [vault-userpass.md](vault-userpass.md)
+
 ## Local Lab Assumptions
 - Vault local endpoint defaults to `http://127.0.0.1:8200`
 - Typical local root token assumption: `root`
