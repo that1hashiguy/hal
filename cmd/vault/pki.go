@@ -46,7 +46,7 @@ var (
 
 var vaultPKICmd = &cobra.Command{
 	Use:   "pki [status|enable|disable|update]",
-	Short: "Manage Vault PKI engines (Root CA, Intermediate CA, cert-manager K8s or ACME/Caddy demo)",
+	Short: "Manage Vault PKI engines and conventional or post-quantum Kubernetes TLS labs",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		if err := parseLifecycleAction(args, &pkiEnable, &pkiDisable, &pkiUpdate); err != nil {
@@ -296,7 +296,10 @@ var vaultPKICmd = &cobra.Command{
 
 				// Conditionally delete KinD cluster
 				vsoOut, _ := exec.Command("helm", "list", "-n", "vso", "-q").Output()
-				if strings.Contains(string(vsoOut), "vault-secrets-operator") {
+				pqcOut, pqcErr := pqcKube(nil, "get", "namespace", pqcNamespace, "--ignore-not-found", "-o", "name")
+				if (pqcErr != nil && halKindClusterRunning()) || strings.TrimSpace(string(pqcOut)) != "" {
+					fmt.Println("KinD cluster preserved (PQC PKI is still active).")
+				} else if strings.Contains(string(vsoOut), "vault-secrets-operator") {
 					fmt.Println("ℹ️  KinD cluster preserved (hal vault k8s is still active).")
 					fmt.Println("   Run 'hal vault k8s disable' to remove it.")
 				} else {
@@ -1538,7 +1541,7 @@ func init() {
 	vaultPKICmd.Flags().StringVar(&pkiMaxCertTTL, "max-cert-ttl", "24h", "Maximum TTL for leaf certificates issued by 'hal-role'")
 
 	// K8s / cert-manager flags
-	vaultPKICmd.Flags().BoolVar(&pkiK8s, "k8s", false, "Deploy cert-manager + nginx web demo on KinD (enable/update only)")
+	vaultPKICmd.Flags().BoolVar(&pkiK8s, "k8s", false, "Deploy cert-manager PKI demo on Kubernetes (--pqc implies its own NGINX deployment)")
 	vaultPKICmd.Flags().BoolVar(&pkiACME, "acme", false, "Deploy Vault ACME endpoint + Caddy demo on KinD (enable/update only)")
 	vaultPKICmd.Flags().BoolVar(&pkiForce, "force", false, "With --k8s/--acme update: also rebuild Root CA and Intermediate CA from scratch")
 	vaultPKICmd.Flags().StringVar(&pkiKindNodeImage, "kind-node-image", "kindest/node:v1.36.1", "KinD node image (used only when creating a new cluster)")

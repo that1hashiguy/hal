@@ -288,3 +288,24 @@ When AI-facing behavior, prompts, routing, skill guidance, docs policy, or UX be
 
 - When changes affect AI-facing behavior (MCP tools, skills metadata, grounding contracts, prompt/response schemas, or deterministic intent routing), apply coordinated updates in both repos: `hal` (truth/tooling) and `hal-plus` (UX/orchestration).
 - Do not ship AI contract changes in only one repo when the other side consumes or exposes the same contract.
+
+## Post-quantum PKI workload boundary
+
+`hal vault pki [enable|update|disable|status] --pqc` isolates mounts, identities,
+Secrets and namespace from conventional PKI/ACME/SoftHSM. PQC implies Kubernetes;
+explicit `--k8s` remains accepted. Default/status actions remain read-only.
+Create the licensed Enterprise 2.2.0+ server through the normal Vault lifecycle;
+PKI never replaces it. Enable provisions its own mounts and checks their live
+ML-DSA schemas before CA generation. Failed issuance removes only newly created
+mounts, preserving existing CAs.
+
+Both pods use pinned stock NGINX/OpenSSL with bundled njs. Kubernetes pulls the
+selected registry image directly; Go orchestrates deployment. NGINX verifies TLS;
+njs formats verified-peer metadata and requires explicit clientAuth EKU.
+Unavailable fields remain null. Only actual connection observations establish
+both ML-DSA signatures and X25519MLKEM768; readiness and certificate parsing do not.
+Browser HTTPS uses a separate conventional ECDSA identity.
+
+Shared KinD co-tenant guards include `hal-pqc`. Use direct host port 8093 when
+mapped; otherwise offer loopback port-forward without recreating the cluster.
+See `docs/commands/vault-pki.md` for the workflow, ownership and integration tests.

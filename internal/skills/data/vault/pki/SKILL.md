@@ -166,3 +166,19 @@ Confirm CA chain is built and which demo modes are active.
 8. **`--hsm` reports a non-HSM build:** Redeploy with `hal vault create --edition ent-hsm --mode prod`. The assertion is validated before any PKI teardown.
 9. **HSM build lacks the HAL runtime:** This is an old stock `-ent.hsm` deployment. Redeploy with `hal vault create --edition ent-hsm --mode prod --update`, or use `--no-hsm` for software CAs.
 10. **HSM teardown:** `hal vault pki disable` deletes the managed key after unmounting PKI and wipes token data, but leaves the create-owned HSM container/image in place. An auto-detected HSM `update` keeps the token and re-registers the key; `update --no-hsm` wipes it. `hal vault delete` removes the runtime image.
+
+### Post-quantum PKI
+
+Use `hal vault pki enable|update|disable --pqc`; default/status actions are
+read-only. PQC implies Kubernetes; explicit `--k8s` remains accepted.
+Provision licensed Enterprise 2.2.0+ through
+`hal vault create --edition ent --vault-tag <supported-tag>`. Enable provisions
+its own mounts and checks their live schemas before CA generation; no diagnostic
+mount is required. Failed issuance removes only newly created mounts.
+Never replace Vault or use SoftHSM availability as evidence of ML-DSA support.
+
+Preserve namespace `hal-pqc` in shared KinD cleanup. Use direct host port 8093
+when mapped, otherwise the status-provided port-forward. Browser ECDSA HTTPS
+and internal ML-DSA/hybrid ML-KEM mTLS are separate trust decisions. Only actual
+verified connection evidence establishes authentication and negotiation;
+readiness and parsed certificates do not. See `docs/commands/vault-pki.md`.

@@ -353,3 +353,236 @@ Flags (enable/update):
 
 Global flags: --debug, --dry-run, --network-subnet, --verbose
 ```
+
+## Post-quantum Kubernetes mutual TLS
+
+Tracked in [issue #110](https://github.com/hashimiche/hal/issues/110).
+
+Both pods use the **official NGINX image**, pinned by digest. There is no custom
+container build, C workload, or locally compiled OpenSSL. HAL mounts configuration,
+a static dashboard and a small njs evidence/policy module into stock NGINX.
+
+```text
+Browser -- conventional ECDSA HTTPS --> frontend NGINX
+frontend NGINX -- ML-DSA-65 mTLS + X25519MLKEM768, TLS 1.3 --> backend NGINX
+```
+
+### Prerequisites
+
+Create Vault through the normal HAL product workflow, selecting a supported
+Enterprise image tag and supplying a valid license:
+
+```sh
+hal vault create --edition ent --vault-tag <supported-tag>
+hal vault pki enable --pqc
+```
+
+Vault must be unsealed, licensed Enterprise **2.2.0 or later** with ML-DSA-65
+PKI API support. HAL checks version and license before provisioning. Enable
+creates its own isolated PKI mounts and checks their live API schemas before
+CA generation; no diagnostic mount or conventional PKI setup is required.
+If provisioning fails, newly created mounts are removed; existing owned mounts
+are preserved. The feature never upgrades or replaces a running Vault.
+HSM availability is not evidence of PQC support; ML-DSA CA keys are generated
+internally in Vault independently of SoftHSM.
+
+Install kind, kubectl, Docker or Podman, and host OpenSSL with ML-DSA X.509
+support, which HAL uses to validate issued certificates before deployment.
+HAL supplies the pinned stock NGINX image, including OpenSSL and njs;
+these do not need to be installed separately on the host. Tested runtime
+versions and limitations are recorded in the interoperability findings below.
+
+`--pqc` implies the Kubernetes deployment. Explicit `--k8s` remains accepted
+for compatibility; status and the default action remain read-only.
+
+### Deploy and operate
+
+```sh
+go build -o hal main.go
+hal vault pki enable --pqc --dry-run
+hal vault pki enable --pqc
+hal vault pki status --pqc
+hal vault pki update --pqc
+hal vault pki disable --pqc
+```
+
+No lifecycle action means read-only status. Enable preserves a completed
+deployment; update reconciles roles, issues new leaves, applies configuration and
+restarts workloads so TLS contexts reload. Root and intermediate CAs are retained.
+Interrupted enable can be repeated. Conventional PKI, ACME, HSM, mount-tuning and
+force flags are rejected with PQC before mutation. Dry-run creates no keys,
+state or infrastructure.
+
+`--pqc-image` overrides the official distribution image. The default digest is
+in `cmd/vault/defaults.go`; overrides need the NGINX SSL variables, OpenSSL
+algorithms and bundled HTTP njs module used by this lab. Update the image pin and
+rerun the interoperability suite when upgrading. HAL pulls/reuses the image locally for compatibility checks; Kubernetes pulls
+the selected image directly from its registry. Overrides must be accessible
+from the cluster as well as the host; no compiler toolchain is needed.
+`--kind-node-image` controls new cluster nodes. `--pqc-cluster-domain` must match
+an existing cluster's CoreDNS Kubernetes zone; new HAL clusters use `cluster.local`.
+
+New shared KinD clusters map host 8093 to NodePort 30085. Existing clusters are
+preserved. If their original configuration lacks that mapping, run:
+
+```sh
+kubectl --context kind-kind -n hal-pqc port-forward --address 127.0.0.1 service/frontend 8093:8443
+```
+
+Open <https://localhost:8093> or <https://pqc.localhost:8093>, then click
+**Test ML-DSA + ML-KEM mTLS Connection**. The frontend verifies the backend's
+chain and full Service DNS name and presents its own ML-DSA client chain.
+Both endpoints require TLS 1.3, `mldsa65` and `X25519MLKEM768`; session reuse is
+disabled so evidence belongs to a full handshake.
+
+### Browser trust
+
+HAL creates a separate self-signed ECDSA P-256 certificate for `pqc.localhost`
+and `localhost`, at `~/.hal/pqc-pki/browser.pem`. It never installs a host trust
+anchor. Inspect and explicitly accept a browser exception or import that
+certificate if desired. Remove manually imported trust yourself when finished.
+Update preserves this certificate while over one day of validity remains;
+otherwise it rotates it and trust must be re-established.
+
+Without changing host trust:
+
+```sh
+curl --cacert ~/.hal/pqc-pki/browser.pem https://localhost:8093/
+curl --cacert ~/.hal/pqc-pki/browser.pem -X POST https://localhost:8093/test
+```
+
+JavaScript cannot directly inspect browser TLS parameters. After a test NGINX
+reports protocol, cipher and group from the actual browser request; the panel
+labels certificate settings as configuration.
+
+### Ownership and trust model
+
+`hal-pqc-root` and `hal-pqc-int` hold internal ML-DSA-65 CAs. Frontend and backend
+roles issue separate clientAuth-only and serverAuth-only leaves, respectively.
+The backend has DNS SANs for `backend`, `backend.hal-pqc`, `backend.hal-pqc.svc`
+and the full Service DNS name. DigitalSignature is the only key usage.
+
+Namespace `hal-pqc` owns Deployments/Services `frontend` and `backend`, their
+leaf Secrets, the `browser` Secret, the `trust` ConfigMap and two configuration
+ConfigMaps. Each pod receives only its own leaf key/presentation chain and root
+trust anchor; the frontend also receives the conventional browser identity.
+No CA keys or Vault administrative credentials enter either pod, and no Vault
+Kubernetes auth mount is needed. Pods run without service-account tokens or
+privilege escalation, with a read-only root filesystem and bounded writable /tmp.
+
+Local state lives under `~/.hal/pqc-pki` (0700 directory, 0600 files) with an owner
+marker. Secrets are applied through stdin with server-side apply, avoiding
+credentials in arguments and last-applied annotations. Mount descriptions,
+namespace labels and local markers prevent adoption of unowned resources.
+Disable removes only lab-owned mounts, namespace and state; it preserves shared
+KinD and distribution images. Other lab teardown guards recognize `hal-pqc`.
+Product/global cleanup handles final cluster/state cleanup. Legacy custom image
+caches from the earlier implementation are removable by global cleanup.
+
+Vault administrators and Kubernetes Secret readers can impersonate workloads.
+The dedicated CA and constrained issuance roles delimit trust; this lab does
+not implement separate application authorization. It has no renewal controller
+or revocation checking: leaves last 24 hours; run update before expiry.
+
+### What custom code remains, and why
+
+[backend.conf](../../cmd/vault/pki-pqc/backend.conf) delegates authentication and key exchange to
+NGINX/OpenSSL. [frontend.conf](../../cmd/vault/pki-pqc/frontend.conf) delegates verified HTTPS
+proxying and browser HTTPS to NGINX.
+
+[evidence.js](../../cmd/vault/pki-pqc/evidence.js) is the remaining application code. It formats
+JSON safely, decodes algorithm OIDs/SAN/EKU fields from **NGINX's verified peer
+certificate**, and rejects a peer lacking explicit clientAuth EKU. NGINX's
+normal purpose check rejects wrong EKU but treats an absent EKU as unrestricted;
+the small additional policy preserves the lab's stricter requirement. It does
+not implement certificate signatures, trust-chain verification or TLS, read
+identity from headers, or treat parsing as verification.
+
+### Evidence semantics
+
+| Reported field | Source |
+| --- | --- |
+| subject, issuer, serial and validity | NGINX verified-client SSL variables |
+| public key/signature algorithms, SANs, EKUs | Decoded from `$ssl_client_raw_cert`, only after `$ssl_client_verify == SUCCESS` |
+| chain_verified | Actual NGINX/OpenSSL verification result for this client connection |
+| trust_anchor | `null`: verified-chain anchor is not exposed by these bindings |
+| protocol, cipher_suite, key_exchange_group | `$ssl_protocol`, `$ssl_cipher`, `$ssl_curve` |
+| peer_handshake_signature_scheme | `$ssl_client_sigalg`, which calls `SSL_get0_peer_signature_name()` |
+| local_handshake_signature_scheme | `$ssl_sigalg`, which reports this connection's server handshake signature |
+| frontend_verification | Successful NGINX HTTPS proxy with chain/DNS verification enabled; wrong-hostname/untrusted-root tests prove enforcement |
+| frontend_observed_backend | `null`: HTTP proxy bindings do not expose upstream certificate/session metadata |
+| browser_connection | NGINX SSL variables for the browser's actual `/test` request |
+
+Backend observations establish both ML-DSA handshake signatures and the hybrid
+ML-KEM group **on the same connection**. Frontend upstream metadata is not
+fabricated or copied from certificate files. The full chain anchor is not guessed
+from configured trust. Readiness/status and cipher-suite names alone never prove
+post-quantum authentication or key establishment.
+
+### Troubleshooting
+
+Use `kubectl --context kind-kind -n hal-pqc logs deploy/frontend` and
+`logs deploy/backend`. A proxy verification failure returns 502 with guidance;
+check chain, DNS SAN, EKU, expiry and runtime algorithms. Never disable verification.
+An incompatible image or missing njs module must fail startup; it is not a reason
+to relabel conventional TLS. Existing stopped clusters must be started explicitly;
+never recreate one while other lab namespaces exist.
+
+TCP readiness probes may cause harmless handshake EOF messages. They establish
+only process readiness. Readiness is not authentication evidence.
+
+### Interoperability findings
+
+The prior 2026-10-20 run on macOS arm64 used Vault `2.2.0+ent.hsm`,
+NGINX 1.31.3, OpenSSL 3.5.7 and bundled njs 1.0.0 from the official image
+pinned in `cmd/vault/defaults.go`; the host client used OpenSSL 3.6.3.
+Vault-issued ML-DSA-65 mutual authentication and X25519MLKEM768 negotiation
+succeeded between two pods on the existing Kubernetes v1.31.1 cluster.
+The browser hop used a separate conventional ECDSA identity.
+These are historical observations, not fresh validation of subsequent changes.
+
+The stock NGINX tests passed valid authentication and rejected missing,
+untrusted, expired, wrong-EKU and absent-EKU clients; incorrect backend hostname,
+untrusted backend root and classical-only groups were also rejected. Negative
+requests did not reach the authenticated backend handler. NGINX may finish TLS
+and return HTTP 400 for a rejected certificate rather than send a TLS alert.
+Interactive browser automation, new-cluster provisioning and destructive global
+cleanup were not verified by that run. This feature has no renewal controller
+or revocation checks; update before the 24-hour leaves expire.
+
+### Fresh deployment validation
+
+A subsequent 2026-10-20 run used Vault `2.2.0+ent` in HAL dev mode and a newly
+created Kubernetes v1.36.1 KinD cluster on Podman/macOS arm64. Issuance and offline
+verification succeeded. The initial rollout exposed stale container-runtime
+aliases caused by importing the host image archive. HAL now lets Kubernetes
+pull the pinned official image directly; the affected node alias was repaired
+without replacing Vault or KinD, and enable completed successfully.
+
+A certificate-verified POST through the new cluster's direct host port 8093
+confirmed the frontend's verified HTTPS proxy, both `mldsa65` handshake
+signatures and `X25519MLKEM768` on the same backend connection. The full CLI and
+stock NGINX positive/negative suite passed against the fresh dev-mode Vault.
+All four required Go checks passed. The fixed code has not subsequently been
+tested by recreating another cluster from scratch. Interactive browser automation
+and destructive cleanup remain unverified by these checks.
+
+### Contributor integration validation
+
+The owning Vault package exposes one opt-in test, alongside its normal unit tests:
+
+```sh
+HAL_PQC_INTEGRATION=1 go test ./cmd/vault -run '^TestPQCIntegration$' -v -count=1
+```
+
+It requires a running licensed Vault Enterprise 2.2.0+, host OpenSSL with
+ML-DSA X.509 support, curl and a container engine (`HAL_PQC_TEST_ENGINE`, default
+`podman`). It uses `VAULT_ADDR`, `VAULT_TOKEN` and `VAULT_CACERT`, falling back
+to HAL production state. `HAL_PQC_TEST_IMAGE` overrides the normal pinned image.
+Artifacts and private keys are generated in the Go test temporary directory,
+never in the checkout. The test neither creates nor tears down KinD.
+It creates process-specific diagnostic Vault mounts, refuses existing mounts,
+and removes only successfully created diagnostic mounts in reverse order on exit.
+No CA keys are exported. Local ML-DSA issuance is used only for untrusted
+negative fixtures. The suite checks actual CLI handshakes and the stock NGINX
+backend and frontend proxy, including explicit clientAuth EKU policy.
