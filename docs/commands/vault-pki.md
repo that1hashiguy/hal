@@ -406,6 +406,11 @@ hal vault pki update --pqc
 hal vault pki disable --pqc
 ```
 
+The demo HTML and JavaScript are embedded in the HAL binary. After editing
+`cmd/vault/pki-pqc/`, rebuild with `go build -o hal main.go`, then run
+`./hal vault pki update --pqc` to deploy the updated assets. Recreating the lab
+with an older binary deploys its older embedded page.
+
 No lifecycle action means read-only status. Enable preserves a completed
 deployment; update reconciles roles, issues new leaves, applies configuration and
 restarts workloads so TLS contexts reload. Root and intermediate CAs are retained.
@@ -430,7 +435,7 @@ kubectl --context kind-kind -n hal-pqc port-forward --address 127.0.0.1 service/
 ```
 
 Open <https://localhost:8093> or <https://pqc.localhost:8093>, then click
-**Test ML-DSA + ML-KEM mTLS Connection**. The frontend verifies the backend's
+**Test connection**. The frontend verifies the backend's
 chain and full Service DNS name and presents its own ML-DSA client chain.
 Both endpoints require TLS 1.3, `mldsa65` and `X25519MLKEM768`; session reuse is
 disabled so evidence belongs to a full handshake.
@@ -499,6 +504,18 @@ not implement certificate signatures, trust-chain verification or TLS, read
 identity from headers, or treat parsing as verification.
 
 ### Evidence semantics
+
+The demo page displays an interactive Browser → Frontend → Backend diagram.
+Select a node or a connection to inspect its observed trust checks, certificate
+identity and validity, or negotiated session algorithms. Running **Test connection**
+populates the nodes. Bidirectional green solid lines show mutual authentication;
+purple dashed lines show joint key establishment on the same TLS connection.
+Blue denotes browser HTTPS. Labels and patterns distinguish the lanes alongside
+color. These represent authentication and key exchange, not a separate application
+authorization policy. Moving markers illustrate the last successful test rather
+than live traffic. Failed tests clear previous results. Browser HTTPS and
+workload mTLS remain separate. Expand **Raw connection evidence / JSON** to inspect
+the original response, including unavailable metadata reported as `null`.
 
 | Reported field | Source |
 | --- | --- |
