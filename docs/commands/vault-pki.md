@@ -403,6 +403,7 @@ hal vault pki enable --pqc --dry-run
 hal vault pki enable --pqc
 hal vault pki status --pqc
 hal vault pki update --pqc
+hal vault pki update --pqc --pqc-cert-ttl 10s # ten-second certificate demo
 hal vault pki disable --pqc
 ```
 
@@ -440,6 +441,35 @@ chain and full Service DNS name and presents its own ML-DSA client chain.
 Both endpoints require TLS 1.3, `mldsa65` and `X25519MLKEM768`; session reuse is
 disabled so evidence belongs to a full handshake.
 
+### Short-lived workload certificates
+
+`--pqc-cert-ttl` sets workload role and leaf TTLs (default `10s`, range `10s`
+to `24h`). Both workloads automatically request a fresh Vault-issued identity
+at about half the remaining lifetime: normally every five seconds. NGINX/njs
+stores each certificate/key pair atomically in shared memory and selects it for
+new TLS handshakes. No pod restart, Kubernetes Secret propagation, cert-manager
+or manual update is needed for rotation. The roles disable certificate storage
+to avoid accumulating thousands of short-lived leaves in Vault.
+
+Click **Test connection**, wait about five seconds, and click it again. The
+page compares the verified frontend serial with the previous successful test,
+shows **Certificate rotated**, and updates the observed expiry and countdown.
+The countdown describes that test's certificate; it does not poll the current
+identity. Backend expiry remains unavailable from the proxy. The separate browser
+HTTPS certificate retains its existing lifetime.
+
+A periodic task checks every second and retries failed issuance without replacing
+the last good identity. Expired identities fail TLS verification; readiness also
+fails when no current identity remains. Restore Vault connectivity/authorization
+to recover automatically. Logs report rotation serials and failures without keys,
+tokens or Vault response bodies. Ten-second TTLs are intended for local demos.
+
+Startup leaf files are offline diagnostic snapshots, not the identities served
+by the pods. HAL verifies each snapshot at one second before its signed expiry
+so startup latency cannot consume its ten-second lifetime. Signature, chain, EKU
+and backend DNS checks remain enforced. Root and intermediate validity are also
+checked against the current time. Live workload TLS always checks current expiry.
+
 ### Browser trust
 
 HAL creates a separate self-signed ECDSA P-256 certificate for `pqc.localhost`
@@ -468,9 +498,16 @@ The backend has DNS SANs for `backend`, `backend.hal-pqc`, `backend.hal-pqc.svc`
 and the full Service DNS name. DigitalSignature is the only key usage.
 
 Namespace `hal-pqc` owns Deployments/Services `frontend` and `backend`, their
-leaf Secrets, the `browser` Secret, the `trust` ConfigMap and two configuration
-ConfigMaps. Each pod receives only its own leaf key/presentation chain and root
-trust anchor; the frontend also receives the conventional browser identity.
+per-workload issuance-token Secrets, the `browser` Secret, the `trust` ConfigMap and two configuration
+ConfigMaps. Each pod receives a token restricted to its own issuance role and
+self-renewal, and obtains its own leaf key/presentation chain from Vault. The
+frontend also receives the conventional browser identity and both trust the root.
+These periodic orphan tokens have one-hour periods, omit the default policy, and
+renew automatically. Local accessors allow disable to revoke them, including
+tokens created by interrupted updates. Updates create new scoped tokens; previous
+unused tokens expire after their last period. If workloads remain stopped beyond
+the one-hour token period, run `update --pqc` to provide fresh issuance credentials. HAL verifies production Vault HTTPS
+through a loopback-only proxy using the Vault CA and server name.
 No CA keys or Vault administrative credentials enter either pod, and no Vault
 Kubernetes auth mount is needed. Pods run without service-account tokens or
 privilege escalation, with a read-only root filesystem and bounded writable /tmp.
@@ -479,15 +516,15 @@ Local state lives under `~/.hal/pqc-pki` (0700 directory, 0600 files) with an ow
 marker. Secrets are applied through stdin with server-side apply, avoiding
 credentials in arguments and last-applied annotations. Mount descriptions,
 namespace labels and local markers prevent adoption of unowned resources.
-Disable removes only lab-owned mounts, namespace and state; it preserves shared
+Disable removes lab-owned mounts, issuance tokens/policies, namespace and state; it preserves shared
 KinD and distribution images. Other lab teardown guards recognize `hal-pqc`.
 Product/global cleanup handles final cluster/state cleanup. Legacy custom image
 caches from the earlier implementation are removable by global cleanup.
 
 Vault administrators and Kubernetes Secret readers can impersonate workloads.
 The dedicated CA and constrained issuance roles delimit trust; this lab does
-not implement separate application authorization. It has no renewal controller
-or revocation checking: leaves last 24 hours; run update before expiry.
+not implement separate application authorization or revocation checking. Its
+NGINX/njs periodic task renews the default ten-second workload identities.
 
 ### What custom code remains, and why
 
@@ -495,7 +532,9 @@ or revocation checking: leaves last 24 hours; run update before expiry.
 NGINX/OpenSSL. [frontend.conf](../../cmd/vault/pki-pqc/frontend.conf) delegates verified HTTPS
 proxying and browser HTTPS to NGINX.
 
-[evidence.js](../../cmd/vault/pki-pqc/evidence.js) is the remaining application code. It formats
+[rotation.js](../../cmd/vault/pki-pqc/rotation.js) handles scoped issuance, token
+renewal and atomic identity publication; NGINX/OpenSSL still performs TLS.
+[evidence.js](../../cmd/vault/pki-pqc/evidence.js) formats connection evidence as
 JSON safely, decodes algorithm OIDs/SAN/EKU fields from **NGINX's verified peer
 certificate**, and rejects a peer lacking explicit clientAuth EKU. NGINX's
 normal purpose check rejects wrong EKU but treats an absent EKU as unrestricted;
@@ -505,10 +544,26 @@ identity from headers, or treat parsing as verification.
 
 ### Evidence semantics
 
-The demo page displays an interactive Browser → Frontend → Backend diagram.
+The demo page starts with **Create identities**, a selectable root → intermediate
+→ frontend/backend leaf certificate hierarchy explaining Vault issuance, workload
+placement, presentation chains and root trust. This is a provisioning architecture
+guide, not live issuance evidence. **Follow the connection** leads to **Use
+identities** and the interactive Browser → Frontend → Backend diagram. The
+key-establishment step visualizes X25519 and ML-KEM-768 contributing to TLS
+session keys: Vault supplies ML-DSA identities; NGINX/OpenSSL establishes the
+session keys during the handshake.
 Select a node or a connection to inspect its observed trust checks, certificate
-identity and validity, or negotiated session algorithms. Running **Test connection**
-populates the nodes. Bidirectional green solid lines show mutual authentication;
+identity and validity, or negotiated session algorithms. The inspector defaults to the workload connection. Running **Test connection**
+provides a four-step guided story: identify the workloads, verify each other,
+establish keys, and exchange data. Each selectable step explains its purpose,
+shows its last-test result, and offers relevant expandable evidence. Mutual
+identity verification and hybrid post-quantum key establishment remain explicit
+verification results. The steps explain the handshake conceptually; they do not
+represent live timing or a packet trace. A local completion timestamp labels the last
+successful test; retrying clears previous results. Node selection provides
+context, with certificate and session fields under **How do we know? View
+technical evidence**. Backend certificate details unavailable from the proxy
+remain explicitly unavailable. Bidirectional green solid lines show mutual authentication;
 purple dashed lines show joint key establishment on the same TLS connection.
 Blue denotes browser HTTPS. Labels and patterns distinguish the lanes alongside
 color. These represent authentication and key exchange, not a separate application
@@ -545,8 +600,8 @@ An incompatible image or missing njs module must fail startup; it is not a reaso
 to relabel conventional TLS. Existing stopped clusters must be started explicitly;
 never recreate one while other lab namespaces exist.
 
-TCP readiness probes may cause harmless handshake EOF messages. They establish
-only process readiness. Readiness is not authentication evidence.
+The HTTP readiness endpoint checks that an unexpired local workload identity
+is available. Readiness is not authentication evidence.
 
 ### Interoperability findings
 
@@ -564,8 +619,8 @@ untrusted backend root and classical-only groups were also rejected. Negative
 requests did not reach the authenticated backend handler. NGINX may finish TLS
 and return HTTP 400 for a rejected certificate rather than send a TLS alert.
 Interactive browser automation, new-cluster provisioning and destructive global
-cleanup were not verified by that run. This feature has no renewal controller
-or revocation checks; update before the 24-hour leaves expire.
+cleanup were not verified by that run. That historical implementation had no renewal controller or revocation checks.
+The current implementation adds automatic identity rotation.
 
 ### Fresh deployment validation
 
@@ -583,6 +638,23 @@ stock NGINX positive/negative suite passed against the fresh dev-mode Vault.
 All four required Go checks passed. The fixed code has not subsequently been
 tested by recreating another cluster from scratch. Interactive browser automation
 and destructive cleanup remain unverified by these checks.
+
+### Automatic rotation validation (2026-10-22)
+
+The existing production Vault HTTPS / KinD deployment was upgraded in place.
+Both NGINX workloads became ready with ten-second roles and automatic issuance.
+Twelve consecutive certificate-verified requests over roughly twelve seconds
+succeeded across three observed frontend serials, changing about every five
+seconds. Each response confirmed both `mldsa65` signatures, `X25519MLKEM768`,
+verified client identity and frontend chain/hostname verification. Runtime logs
+also confirmed recurring backend issuance. No CA rebuild was required.
+
+Go package tests cover token scope, credential file permissions, deployment
+rendering and revocation. Node tests cover rotation cadence, matched key/cert
+snapshots, issuance failure/recovery, expired readiness, token renewal and
+concurrent invocation guards; page tests cover first, changed, unchanged and
+failed connection states. Interactive browser validation and destructive live
+teardown were not performed for this change.
 
 ### Contributor integration validation
 

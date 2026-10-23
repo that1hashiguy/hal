@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,10 @@ var pqcAssets embed.FS
 var pkiPQC bool
 var pqcImage, pqcDomain string
 
+const pqcDefaultCertTTL = "10s"
+
+var pqcCertTTL = pqcDefaultCertTTL
+
 func validatePQCFlags(cmd *cobra.Command, action string) error {
 	// PQC currently has one deployment mode: the shared Kubernetes cluster.
 	// An explicit --k8s remains accepted; status never provisions infrastructure.
@@ -42,6 +47,9 @@ func validatePQCFlags(cmd *cobra.Command, action string) error {
 		if cmd.Flags().Changed(flag) {
 			return fmt.Errorf("--pqc cannot be combined with --%s; PQC resources are isolated from conventional PKI/ACME/HSM", flag)
 		}
+	}
+	if ttl, err := time.ParseDuration(pqcCertTTL); err != nil || ttl < 10*time.Second || ttl > 24*time.Hour {
+		return fmt.Errorf("--pqc-cert-ttl must be a duration between 10s and 24h")
 	}
 	if !regexp.MustCompile(`^[a-z0-9]+([.-][a-z0-9]+)*$`).MatchString(pqcDomain) {
 		return fmt.Errorf("invalid --pqc-cluster-domain")
@@ -277,11 +285,11 @@ func pqcIssue(client *vaultapi.Client, dir string) (err error) {
 		if name == pqcFrontend {
 			names = []string{pqcFrontend + "." + pqcNamespace + ".svc." + pqcDomain}
 		}
-		_, e := pqcWrite(client, pqcIntMount+"/roles/"+name, map[string]interface{}{"key_type": "ml-dsa", "parameter_set": "ml-dsa-65", "allowed_domains": names, "allow_bare_domains": true, "allow_subdomains": false, "client_flag": name == pqcFrontend, "server_flag": name == pqcBackend, "key_usage": []string{"DigitalSignature"}, "max_ttl": "24h"})
+		_, e := pqcWrite(client, pqcIntMount+"/roles/"+name, map[string]interface{}{"key_type": "ml-dsa", "parameter_set": "ml-dsa-65", "allowed_domains": names, "allow_bare_domains": true, "allow_subdomains": false, "client_flag": name == pqcFrontend, "server_flag": name == pqcBackend, "key_usage": []string{"DigitalSignature"}, "not_before_duration": "1s", "no_store": true, "ttl": pqcCertTTL, "max_ttl": pqcCertTTL})
 		if e != nil {
 			return e
 		}
-		d, e := pqcWrite(client, pqcIntMount+"/issue/"+name, map[string]interface{}{"common_name": names[0], "alt_names": strings.Join(names, ","), "ttl": "24h", "private_key_format": "pkcs8"})
+		d, e := pqcWrite(client, pqcIntMount+"/issue/"+name, map[string]interface{}{"common_name": names[0], "alt_names": strings.Join(names, ","), "ttl": pqcCertTTL, "private_key_format": "pkcs8"})
 		if e != nil {
 			return e
 		}
@@ -301,6 +309,27 @@ func pqcIssue(client *vaultapi.Client, dir string) (err error) {
 		}
 	}
 	return nil
+}
+
+// Local leaves are diagnostic snapshots, not the identities served by pods.
+// Verify them within their signed validity interval so startup latency cannot
+// consume a ten-second lifetime. Live NGINX verification still uses wall time.
+func pqcLeafVerifyArgs(dir, leaf string) ([]string, error) {
+	path := filepath.Join(dir, leaf+".pem")
+	out, err := pqcExec(nil, "openssl", "x509", "-in", path, "-noout", "-enddate")
+	if err != nil {
+		return nil, err
+	}
+	end, err := time.Parse("Jan _2 15:04:05 2006 MST", strings.TrimPrefix(strings.TrimSpace(string(out)), "notAfter="))
+	if err != nil {
+		return nil, fmt.Errorf("read %s diagnostic certificate expiry: %w", leaf, err)
+	}
+	args := []string{"verify", "-attime", strconv.FormatInt(end.Unix()-1, 10), "-CAfile", filepath.Join(dir, "root.pem"), "-untrusted", filepath.Join(dir, "intermediate.pem"), "-purpose", "sslclient"}
+	if leaf == pqcBackend {
+		args[len(args)-1] = "sslserver"
+		args = append(args, "-verify_hostname", pqcBackend+"."+pqcNamespace+".svc."+pqcDomain)
+	}
+	return append(args, path), nil
 }
 
 func pqcBrowserCert(dir string) error {
@@ -371,11 +400,11 @@ func pqcApply(obj interface{}) error {
 func pqcMetadata(name string) map[string]interface{} {
 	return map[string]interface{}{"name": name, "namespace": pqcNamespace, "labels": map[string]string{"app.kubernetes.io/managed-by": pqcOwner}}
 }
-func pqcDeploy(dir, image string) error {
+func pqcDeploy(dir, image, proxy string) error {
 	if e := pqcApply(map[string]interface{}{"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]interface{}{"name": pqcNamespace, "labels": map[string]string{"app.kubernetes.io/managed-by": pqcOwner}}}); e != nil {
 		return e
 	}
-	for name, files := range map[string]map[string]string{"frontend": {"tls.crt": "frontend-chain.pem", "tls.key": "frontend.key"}, "backend": {"tls.crt": "backend-chain.pem", "tls.key": "backend.key"}, "browser": {"tls.crt": "browser.pem", "tls.key": "browser.key"}} {
+	for name, files := range map[string]map[string]string{"frontend": {"rotation.json": "frontend-rotation.json"}, "backend": {"rotation.json": "backend-rotation.json"}, "browser": {"tls.crt": "browser.pem", "tls.key": "browser.key"}} {
 		data := map[string]string{}
 		for k, f := range files {
 			b, e := os.ReadFile(filepath.Join(dir, f))
@@ -386,7 +415,11 @@ func pqcDeploy(dir, image string) error {
 		}
 		// Server-side apply avoids storing an additional copy of leaf keys in the
 		// last-applied-configuration annotation.
-		obj := map[string]interface{}{"apiVersion": "v1", "kind": "Secret", "metadata": pqcMetadata(name), "type": "kubernetes.io/tls", "stringData": data}
+		secretName, secretType := name+"-rotation", "Opaque"
+		if name == "browser" {
+			secretName, secretType = name, "kubernetes.io/tls"
+		}
+		obj := map[string]interface{}{"apiVersion": "v1", "kind": "Secret", "metadata": pqcMetadata(secretName), "type": secretType, "stringData": data}
 		b, _ := json.Marshal(obj)
 		if _, e := pqcKube(b, "apply", "--server-side", "--field-manager="+pqcOwner, "-f", "-"); e != nil {
 			return e
@@ -396,7 +429,13 @@ func pqcDeploy(dir, image string) error {
 	if e != nil {
 		return e
 	}
-	if e = pqcApply(map[string]interface{}{"apiVersion": "v1", "kind": "ConfigMap", "metadata": pqcMetadata("trust"), "data": map[string]string{"root.pem": string(root)}}); e != nil {
+	trust := map[string]string{"root.pem": string(root)}
+	if ca, err := os.ReadFile(filepath.Join(dir, "vault-ca.pem")); err == nil {
+		trust["vault-ca.pem"] = string(ca)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if e = pqcApply(map[string]interface{}{"apiVersion": "v1", "kind": "ConfigMap", "metadata": pqcMetadata("trust"), "data": trust}); e != nil {
 		return e
 	}
 	for _, name := range []string{pqcBackend, pqcFrontend} {
@@ -404,12 +443,16 @@ func pqcDeploy(dir, image string) error {
 		if err != nil {
 			return err
 		}
-		config = []byte(strings.ReplaceAll(string(config), "__CLUSTER_DOMAIN__", pqcDomain))
+		config = []byte(pqcRotationConfig(strings.ReplaceAll(string(config), "__CLUSTER_DOMAIN__", pqcDomain), proxy))
 		script, err := pqcAssets.ReadFile("pki-pqc/evidence.js")
 		if err != nil {
 			return err
 		}
-		data := map[string]string{"nginx.conf": string(config), "evidence.js": string(script)}
+		rotation, err := pqcAssets.ReadFile("pki-pqc/rotation.js")
+		if err != nil {
+			return err
+		}
+		data := map[string]string{"nginx.conf": string(config), "evidence.js": string(script), "rotation.js": string(rotation)}
 		if name == pqcFrontend {
 			page, err := pqcAssets.ReadFile("pki-pqc/index.html")
 			if err != nil {
@@ -423,9 +466,15 @@ func pqcDeploy(dir, image string) error {
 		configHash := sha256.New()
 		configHash.Write(config)
 		configHash.Write(script)
+		configHash.Write(rotation)
+		credentials, err := os.ReadFile(filepath.Join(dir, name+"-rotation.json"))
+		if err != nil {
+			return err
+		}
+		configHash.Write(credentials)
 		configHash.Write([]byte(data["index.html"]))
 		labels := map[string]string{"app": pqcOwner + "-" + name, "app.kubernetes.io/managed-by": pqcOwner}
-		volumes := []interface{}{map[string]interface{}{"name": "identity", "secret": map[string]interface{}{"secretName": name, "defaultMode": 0440}}, map[string]interface{}{"name": "trust", "configMap": map[string]string{"name": "trust"}}}
+		volumes := []interface{}{map[string]interface{}{"name": "identity", "secret": map[string]interface{}{"secretName": name + "-rotation", "defaultMode": 0440}}, map[string]interface{}{"name": "trust", "configMap": map[string]string{"name": "trust"}}}
 		mounts := []interface{}{map[string]interface{}{"name": "identity", "mountPath": "/identity", "readOnly": true}, map[string]interface{}{"name": "trust", "mountPath": "/trust", "readOnly": true}}
 		if name == pqcFrontend {
 			volumes = append(volumes, map[string]interface{}{"name": "browser", "secret": map[string]interface{}{"secretName": "browser", "defaultMode": 0440}})
@@ -437,7 +486,7 @@ func pqcDeploy(dir, image string) error {
 			"name": name, "image": image, "imagePullPolicy": "IfNotPresent", "command": []string{"nginx"}, "args": []string{"-c", "/app/nginx.conf", "-g", "daemon off;"},
 			"ports": []interface{}{map[string]interface{}{"name": "tls", "containerPort": 8443}}, "volumeMounts": mounts,
 			"securityContext": map[string]interface{}{"allowPrivilegeEscalation": false, "readOnlyRootFilesystem": true, "capabilities": map[string]interface{}{"drop": []string{"ALL"}}},
-			"readinessProbe":  map[string]interface{}{"tcpSocket": map[string]interface{}{"port": 8443}, "initialDelaySeconds": 2, "periodSeconds": 5},
+			"readinessProbe":  map[string]interface{}{"httpGet": map[string]interface{}{"path": "/health", "port": 8080}, "initialDelaySeconds": 1, "periodSeconds": 1},
 			"resources":       map[string]interface{}{"requests": map[string]string{"cpu": "50m", "memory": "32Mi"}, "limits": map[string]string{"memory": "128Mi"}},
 		}}}
 		deployment := map[string]interface{}{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": pqcMetadata(name), "spec": map[string]interface{}{"replicas": 1, "selector": map[string]interface{}{"matchLabels": map[string]string{"app": labels["app"]}}, "template": map[string]interface{}{"metadata": map[string]interface{}{"labels": labels, "annotations": map[string]string{"hal.pqc-config": fmt.Sprintf("%x", configHash.Sum(nil))}}, "spec": pod}}}
@@ -459,7 +508,9 @@ func pqcDeploy(dir, image string) error {
 			return e
 		}
 	}
-	return nil
+	// Remove the previous static leaf Secrets only after both rotating workloads are ready.
+	_, e = pqcKube(nil, "delete", "secret", pqcFrontend, pqcBackend, "-n", pqcNamespace, "--ignore-not-found")
+	return e
 }
 
 // Inspect the runtime mapping without changing the shared cluster.
@@ -530,6 +581,13 @@ func pqcDisable(client *vaultapi.Client) error {
 				return e
 			}
 		}
+	}
+	dir, err := pqcStateDir()
+	if err != nil {
+		return err
+	}
+	if err := pqcRevokeRotation(client, dir); err != nil {
+		return err
 	}
 	return global.RemovePQCPKIState()
 }
@@ -635,6 +693,10 @@ func runPQC(cmd *cobra.Command, args []string) error {
 		return e
 	}
 	// Offline diagnostics are mandatory and precede Kubernetes mutation.
+	// CAs must still be valid now, independently of historical leaf diagnostics.
+	if _, err := pqcExec(nil, "openssl", "verify", "-CAfile", filepath.Join(dir, "root.pem"), filepath.Join(dir, "root.pem"), filepath.Join(dir, "intermediate.pem")); err != nil {
+		return err
+	}
 	for _, ca := range []string{"root", "intermediate"} {
 		out, err := pqcExec(nil, "openssl", "x509", "-in", filepath.Join(dir, ca+".pem"), "-noout", "-text")
 		if err != nil {
@@ -645,12 +707,10 @@ func runPQC(cmd *cobra.Command, args []string) error {
 		}
 	}
 	for _, leaf := range []string{pqcFrontend, pqcBackend} {
-		args := []string{"verify", "-CAfile", filepath.Join(dir, "root.pem"), "-untrusted", filepath.Join(dir, "intermediate.pem"), "-purpose", "sslclient"}
-		if leaf == pqcBackend {
-			args[len(args)-1] = "sslserver"
-			args = append(args, "-verify_hostname", pqcBackend+"."+pqcNamespace+".svc."+pqcDomain)
+		args, err := pqcLeafVerifyArgs(dir, leaf)
+		if err != nil {
+			return err
 		}
-		args = append(args, filepath.Join(dir, leaf+".pem"))
 		out, err := pqcExec(nil, "openssl", args...)
 		if err != nil {
 			return err
@@ -672,19 +732,20 @@ func runPQC(cmd *cobra.Command, args []string) error {
 	}
 	// Let Kubernetes pull the selected registry image. Importing a host-engine
 	// archive can leave stale CRI aliases on fresh containerd/KinD nodes.
-	if e = pqcDeploy(dir, image); e != nil {
+	proxy, ca, err := pqcVaultProxy(client, engine)
+	if err != nil {
+		return err
+	}
+	if len(ca) > 0 {
+		if err := os.WriteFile(filepath.Join(dir, "vault-ca.pem"), ca, 0600); err != nil {
+			return err
+		}
+	}
+	if e = pqcConfigureRotation(client, dir); e != nil {
 		return e
 	}
-	// Updating Secret volumes alone does not reload a process's SSL_CTX.
-	if action == "update" {
-		if _, e = pqcKube(nil, "rollout", "restart", "deployment", "-n", pqcNamespace, "-l", "app.kubernetes.io/managed-by="+pqcOwner); e != nil {
-			return e
-		}
-		for _, n := range []string{pqcBackend, pqcFrontend} {
-			if _, e = pqcKube(nil, "rollout", "status", "deployment/"+n, "-n", pqcNamespace, "--timeout=120s"); e != nil {
-				return e
-			}
-		}
+	if e = pqcDeploy(dir, image, proxy); e != nil {
+		return e
 	}
 	if e = os.WriteFile(filepath.Join(dir, "deployed"), []byte(image), 0600); e != nil {
 		return e
@@ -700,7 +761,7 @@ func init() {
 		if pkiPQC {
 			return runPQC(cmd, args)
 		}
-		for _, f := range []string{"pqc-image", "pqc-cluster-domain"} {
+		for _, f := range []string{"pqc-image", "pqc-cluster-domain", "pqc-cert-ttl"} {
 			if cmd.Flags().Changed(f) {
 				return fmt.Errorf("--%s requires --pqc", f)
 			}
@@ -713,6 +774,7 @@ func init() {
 	}
 	f := vaultPKICmd.Flags()
 	f.BoolVar(&pkiPQC, "pqc", false, "Use isolated ML-DSA-65 mutual TLS and hybrid ML-KEM lab (implies Kubernetes)")
+	f.StringVar(&pqcCertTTL, "pqc-cert-ttl", pqcDefaultCertTTL, "PQC workload certificate TTL (10s to 24h); automatically rotates at half lifetime")
 	f.StringVar(&pqcImage, "pqc-image", pqcDefaultImage, "Stock NGINX image with njs and ML-DSA/hybrid ML-KEM TLS support")
 	f.StringVar(&pqcDomain, "pqc-cluster-domain", pqcDefaultDomain, "Actual Kubernetes Service DNS domain")
 }

@@ -182,3 +182,13 @@ when mapped, otherwise the status-provided port-forward. Browser ECDSA HTTPS
 and internal ML-DSA/hybrid ML-KEM mTLS are separate trust decisions. Only actual
 verified connection evidence establishes authentication and negotiation;
 readiness and parsed certificates do not. See `docs/commands/vault-pki.md`.
+
+
+PQC workload certificates default to `--pqc-cert-ttl 10s` (range 10s–24h).
+NGINX/njs automatically issues fresh identities at about half the lifetime and
+selects them for new handshakes without restarting pods. Click Test connection
+again after roughly five seconds to see a changed frontend serial and expiry.
+The page countdown is a snapshot of the last verified connection. Each pod uses
+its own restricted, self-renewing issuance token; disable revokes those tokens
+and removes their policies. If pods remain stopped beyond the one-hour token
+period, run update --pqc to provision fresh issuance credentials.

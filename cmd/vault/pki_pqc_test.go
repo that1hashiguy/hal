@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,6 +64,23 @@ func TestPQCFlagsBeforeMutation(t *testing.T) {
 	}
 
 }
+func TestPQCCertificateTTLValidation(t *testing.T) {
+	saved := pqcCertTTL
+	t.Cleanup(func() { pqcCertTTL = saved })
+	for _, value := range []string{"10s", "1m", pqcDefaultCertTTL, "5m", "2h", "24h"} {
+		pqcCertTTL = value
+		if err := validatePQCFlags(pqcFlagCommand(), "enable"); err != nil {
+			t.Errorf("%s: %v", value, err)
+		}
+	}
+	for _, value := range []string{"", "invalid", "0s", "-5m", "9s", "25h"} {
+		pqcCertTTL = value
+		if err := validatePQCFlags(pqcFlagCommand(), "enable"); err == nil {
+			t.Errorf("accepted TTL %q", value)
+		}
+	}
+}
+
 func TestPQCDryRunNoToolsOrState(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -138,7 +156,7 @@ func TestPQCDisableOwnedOrder(t *testing.T) {
 			deleted = append(deleted, call.Key)
 		}
 	}
-	want := []string{"DELETE /v1/sys/mounts/hal-pqc-int", "DELETE /v1/sys/mounts/hal-pqc-root"}
+	want := []string{"DELETE /v1/sys/mounts/hal-pqc-int", "DELETE /v1/sys/mounts/hal-pqc-root", "DELETE /v1/sys/policies/acl/hal-vault-pqc-pki-frontend", "DELETE /v1/sys/policies/acl/hal-vault-pqc-pki-backend"}
 	if strings.Join(deleted, ",") != strings.Join(want, ",") {
 		t.Fatalf("teardown order/scope = %v", deleted)
 	}
@@ -190,7 +208,7 @@ func TestPQCEmbeddedDeployment(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bin, "kubectl"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	for _, file := range []string{"frontend-chain.pem", "frontend.key", "backend-chain.pem", "backend.key", "browser.pem", "browser.key", "root.pem"} {
+	for _, file := range []string{"frontend-chain.pem", "frontend.key", "backend-chain.pem", "backend.key", "frontend-rotation.json", "backend-rotation.json", "browser.pem", "browser.key", "root.pem"} {
 		if err := os.WriteFile(filepath.Join(dir, file), []byte("fixture"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -198,7 +216,7 @@ func TestPQCEmbeddedDeployment(t *testing.T) {
 	oldDomain := pqcDomain
 	pqcDomain = "test.internal"
 	t.Cleanup(func() { pqcDomain = oldDomain })
-	if err := pqcDeploy(dir, "test-image@sha256:fixture"); err != nil {
+	if err := pqcDeploy(dir, "test-image@sha256:fixture", ""); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(capture)
@@ -244,7 +262,7 @@ func TestPQCEmbeddedDeployment(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if resource.Data["nginx.conf"] != strings.ReplaceAll(string(expected), "__CLUSTER_DOMAIN__", pqcDomain) {
+			if resource.Data["nginx.conf"] != pqcRotationConfig(strings.ReplaceAll(string(expected), "__CLUSTER_DOMAIN__", pqcDomain), "") {
 				t.Fatal("deployed config differs from embedded asset")
 			}
 			for key, value := range resource.Data {
@@ -323,6 +341,9 @@ func TestPQCIssuanceSchemaRollback(t *testing.T) {
 }
 
 func TestPQCIssuanceFreshMounts(t *testing.T) {
+	saved := pqcCertTTL
+	pqcCertTTL = "2m"
+	t.Cleanup(func() { pqcCertTTL = saved })
 	routes := map[string]fakeVaultResponse{mountsKey: ok(`{"data":{}}`)}
 	for _, mount := range []string{pqcRootMount, pqcIntMount} {
 		routes["GET /v1/"+mount+"/root/generate/internal"] = ok(`{"help":"parameter_set ml-dsa-65"}`)
@@ -340,6 +361,14 @@ func TestPQCIssuanceFreshMounts(t *testing.T) {
 	for _, call := range fv.calls {
 		if strings.HasPrefix(call.Key, "DELETE ") {
 			t.Fatal("removed successfully provisioned mount")
+		}
+		if strings.Contains(call.Key, "/roles/") || strings.Contains(call.Key, "/issue/") {
+			if call.Body["ttl"] != "2m" {
+				t.Errorf("%s TTL = %v", call.Key, call.Body["ttl"])
+			}
+			if strings.Contains(call.Key, "/roles/") && call.Body["max_ttl"] != "2m" {
+				t.Errorf("%s max TTL = %v", call.Key, call.Body["max_ttl"])
+			}
 		}
 	}
 }
@@ -362,5 +391,90 @@ func TestPQCHostPortMapping(t *testing.T) {
 				t.Fatalf("mapped=%t, want %t", got, tc.mapped)
 			}
 		})
+	}
+}
+
+func TestPQCRotationCredentialsScopedAndRevoked(t *testing.T) {
+	dir := t.TempDir()
+	fv, client := newFakeVault(t, map[string]fakeVaultResponse{
+		"POST /v1/auth/token/create-orphan": ok(`{"auth":{"client_token":"scoped-token","accessor":"owned-accessor"}}`),
+	})
+	if err := pqcConfigureRotation(client, dir); err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, call := range fv.calls {
+		if call.Key == "PUT /v1/sys/policies/acl/"+pqcRotationPolicy(pqcFrontend) || call.Key == "PUT /v1/sys/policies/acl/"+pqcRotationPolicy(pqcBackend) {
+			policy := call.Body["policy"].(string)
+			if strings.Contains(policy, "*") || strings.Contains(policy, "root") || !strings.Contains(policy, "auth/token/renew-self") {
+				t.Fatalf("unexpected policy: %s", policy)
+			}
+			count++
+		}
+		if call.Key == "POST /v1/auth/token/create-orphan" {
+			if call.Body["no_default_policy"] != true || call.Body["period"] != "1h" {
+				t.Fatalf("unrestricted token: %v", call.Body)
+			}
+		}
+	}
+	if count != 2 {
+		t.Fatalf("created %d workload policies", count)
+	}
+	for _, name := range []string{pqcFrontend, pqcBackend} {
+		raw, err := os.ReadFile(filepath.Join(dir, name+"-rotation.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var data map[string]interface{}
+		if err := json.Unmarshal(raw, &data); err != nil {
+			t.Fatal(err)
+		}
+		if data["issue_path"] != pqcIntMount+"/issue/"+name || data["ttl_ms"] != float64(10000) {
+			t.Fatalf("unexpected rotation settings: %v", data)
+		}
+		info, _ := os.Stat(filepath.Join(dir, name+"-rotation.json"))
+		if info.Mode().Perm() != 0600 {
+			t.Fatal("rotation credential file is not private")
+		}
+	}
+	if err := pqcRevokeRotation(client, dir); err != nil {
+		t.Fatal(err)
+	}
+	revoked := 0
+	for _, call := range fv.calls {
+		if call.Key == "POST /v1/auth/token/revoke-accessor" {
+			revoked++
+		}
+	}
+	if revoked != 2 {
+		t.Fatalf("revoked %d tokens", revoked)
+	}
+}
+
+func TestPQCAutomaticRotationRuntime(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is required for the njs rotation logic tests")
+	}
+	for _, file := range []string{"testdata/pki_pqc_rotation_test.cjs", "testdata/pki_pqc_page_test.cjs"} {
+		t.Run(file, func(t *testing.T) {
+			output, err := exec.Command(node, file).CombinedOutput()
+			if err != nil {
+				t.Fatalf("runtime tests: %v\n%s", err, output)
+			}
+		})
+	}
+}
+
+func TestPQCRotationRevocationAlreadyExpired(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "rotation-accessors"), []byte("expired-accessor\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, client := newFakeVault(t, map[string]fakeVaultResponse{
+		"POST /v1/auth/token/revoke-accessor": {Status: 400, Body: `{"errors":["invalid accessor"]}`},
+	})
+	if err := pqcRevokeRotation(client, dir); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -65,6 +65,10 @@
       "name": "--pqc"
     },
     {
+      "description": "PQC workload certificate TTL (10s to 24h); automatically rotates at half lifetime (default \"10s\")",
+      "name": "--pqc-cert-ttl string"
+    },
+    {
       "description": "Actual Kubernetes Service DNS domain (default \"cluster.local\")",
       "name": "--pqc-cluster-domain string"
     },
