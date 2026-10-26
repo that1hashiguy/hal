@@ -394,7 +394,7 @@ Install kind, kubectl, Docker or Podman, and host OpenSSL with ML-DSA X.509
 support, which HAL uses to validate issued certificates before deployment.
 HAL supplies the pinned stock NGINX image, including OpenSSL and njs;
 these do not need to be installed separately on the host. Tested runtime
-versions and limitations are recorded in the interoperability findings below.
+versions and limitations are recorded in [INTEROPERABILITY.md](../../INTEROPERABILITY.md).
 
 `--pqc` implies the Kubernetes deployment. Explicit `--k8s` remains accepted
 for compatibility; status and the default action remain read-only.
@@ -608,6 +608,9 @@ The HTTP readiness endpoint checks that an unexpired local workload identity
 is available. Readiness is not authentication evidence.
 
 ### Interoperability findings
+
+The [interoperability record](../../INTEROPERABILITY.md) summarizes the tested
+versions, positive and negative results, and evidence gaps.
 
 The prior 2026-10-20 run on macOS arm64 used Vault `2.2.0+ent.hsm`,
 NGINX 1.31.3, OpenSSL 3.5.7 and bundled njs 1.0.0 from the official image
