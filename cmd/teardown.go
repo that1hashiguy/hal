@@ -160,17 +160,15 @@ func runGlobalTeardown() globalTeardownResult {
 		}
 	}
 
-<<<<<<< HEAD
 	if err := global.RemovePQCPKIState(); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("PQC PKI state cleanup failed: %v", err))
 	}
-=======
+
 	// Every lab is gone, so the credentials they generated go with them.
 	if err := labsecrets.RemoveStore(); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("lab credential store cleanup failed: %v", err))
 	}
 
->>>>>>> upstream/main
 	removed, existed, err := global.RemoveObsState()
 	if err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("observability state cleanup failed: %v", err))
