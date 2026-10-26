@@ -721,7 +721,7 @@ func runPQC(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		if !bytes.Contains(out, []byte("Public Key Algorithm: ML-DSA-65")) || !bytes.Contains(out, []byte("Signature Algorithm: ML-DSA-65")) {
-			return fmt.Errorf("Vault %s certificate is not ML-DSA-65", leaf)
+			return fmt.Errorf("vault %s certificate is not ML-DSA-65", leaf)
 		}
 	}
 	if e = pqcBrowserCert(dir); e != nil {

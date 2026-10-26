@@ -37,7 +37,7 @@ path "auth/token/renew-self" { capabilities = ["update"] }`, pqcIntMount, name)
 			return err
 		}
 		if token == nil || token.Auth == nil || token.Auth.ClientToken == "" || token.Auth.Accessor == "" {
-			return fmt.Errorf("Vault did not return a PQC issuance token")
+			return fmt.Errorf("vault did not return a PQC issuance token")
 		}
 		path := filepath.Join(dir, "rotation-accessors")
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
