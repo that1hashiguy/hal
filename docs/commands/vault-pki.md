@@ -330,14 +330,14 @@ vault read sys/managed-keys/pkcs11/hal-kms-root
 ```text
 hal vault pki [status|enable|disable|update]
 
-Flags (enable/update):
+Flags (mode selection and enable/update):
   --root-mount string         Vault mount path for Root CA (default "pki-root")
   --int-mount string          Vault mount path for Intermediate CA (default "pki-int")
   --root-ttl string           Root CA max TTL (default "43800h" = 5y)
   --int-ttl string            Intermediate CA max TTL (default "17520h" = 2y)
   --allowed-domains string    Allowed domains for hal-role
   --max-cert-ttl string       Max TTL for leaf certs (default "24h")
-  --k8s                       Deploy cert-manager + web demo on KinD
+  --k8s                       Deploy cert-manager + web demo on KinD (with --pqc, select its own NGINX lab)
   --force                     With update --k8s/--acme: also rebuild Root CA and Intermediate CA
   --kind-node-image string    KinD node image (default "kindest/node:v1.36.1")
   --cert-manager-version      Jetstack chart version (empty = latest)
@@ -350,6 +350,10 @@ Flags (enable/update):
   --hsm                       Require HSM-backed CAs; error if Vault is not an HSM build
   --no-hsm                    Force software-backed CAs on an HSM build
   --softhsm-* flags           Token label / PINs / key labels / managed-key name
+  --pqc                       Use isolated ML-DSA-65 mutual TLS and hybrid ML-KEM lab
+  --pqc-cert-ttl string       PQC workload certificate TTL (default "10s", range 10s–24h)
+  --pqc-image string          Stock NGINX image with njs and PQC TLS support (pinned digest by default)
+  --pqc-cluster-domain string Kubernetes Service DNS domain (default "cluster.local")
 
 Global flags: --debug, --dry-run, --network-subnet, --verbose
 ```

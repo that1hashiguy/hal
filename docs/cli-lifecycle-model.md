@@ -164,8 +164,8 @@ Several `hal vault` features can run simultaneously on the same KinD cluster.
 Each feature that uses `--k8s` must follow these rules:
 
 ### Auth mount isolation
-Every `--k8s` feature owns a **dedicated** Vault Kubernetes auth mount. No two
-features share a mount. Sharing a mount means the second feature to `enable`
+Every feature that enables Vault Kubernetes auth owns a **dedicated** auth mount.
+No two features share a mount. Sharing a mount means the second feature to `enable`
 overwrites the Kubernetes CA/token config for the first, and the first feature's
 `disable` tears down auth for the second.
 
@@ -175,8 +175,10 @@ overwrites the Kubernetes CA/token config for the first, and the first feature's
 | `hal vault database --k8s` | `kubernetes-db/` |
 | `hal vault pki --k8s` | `kubernetes-pki/` |
 
-When adding a new `--k8s` feature, register a new mount path here and in
-`cmd/vault/defaults.go`. Never reuse an existing mount.
+When adding a feature that enables Vault Kubernetes auth, register a new mount
+path here and in `cmd/vault/defaults.go`. Never reuse an existing mount.
+`hal vault pki --pqc` uses scoped issuance tokens and does not enable Vault
+Kubernetes auth, so it has no auth mount.
 
 ### Co-tenant cluster teardown guard
 Before running `kind delete cluster`, every `disable` path must check whether

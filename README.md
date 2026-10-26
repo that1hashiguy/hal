@@ -604,7 +604,8 @@ Use `hal vault pki enable --pqc` for Vault-issued ML-DSA-65 mutual TLS with
 hybrid X25519MLKEM768 between two pods, behind conventional browser HTTPS. Requires
 an existing licensed Vault Enterprise 2.2.0+ and a compatible stock NGINX/OpenSSL image.
 `hal vault pki status --pqc`, `update --pqc` and `disable --pqc` manage
-the isolated lab. Workload certificates expire after ten seconds and rotate
+the isolated lab. `hal status` and `hal vault status` also report PQC deployment
+readiness. Workload certificates expire after ten seconds and rotate
 automatically about every five seconds. Click **Test connection** again to see a
 new frontend certificate serial and expiry. Use `--pqc-cert-ttl` to change the TTL. See [setup, browser trust and tests](docs/commands/vault-pki.md) and
 the interoperability findings there.

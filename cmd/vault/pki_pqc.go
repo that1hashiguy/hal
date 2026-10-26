@@ -91,20 +91,20 @@ func pqcPrerequisites(client *vaultapi.Client) error {
 		}
 	}
 	if !active {
-		return fmt.Errorf("Vault must report an active Enterprise license at sys/license/status; install a valid license on the existing deployment")
+		return fmt.Errorf("vault must report an active Enterprise license at sys/license/status; install a valid license on the existing deployment")
 	}
 	return nil
 }
 
 // Check the owned mount's live API before generating any CA keys.
 func pqcCheckSchema(client *vaultapi.Client, mount string) error {
-	req := client.NewRequest("GET", "/v1/"+mount+"/root/generate/internal")
-	req.Params.Set("help", "1")
-	resp, err := client.RawRequestWithContext(context.Background(), req)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	resp, err := client.Logical().ReadRawWithDataWithContext(ctx, mount+"/root/generate/internal", map[string][]string{"help": {"1"}})
 	if err != nil {
 		return fmt.Errorf("read PKI algorithm schema: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var data map[string]interface{}
 	if err := resp.DecodeJSON(&data); err != nil {
 		return err
@@ -184,7 +184,7 @@ func pqcCheckOwnership(client *vaultapi.Client) error {
 func pqcWrite(client *vaultapi.Client, path string, data map[string]interface{}) (map[string]interface{}, error) {
 	s, e := client.Logical().Write(path, data)
 	if e != nil {
-		return nil, fmt.Errorf("Vault %s: %w", path, e)
+		return nil, fmt.Errorf("vault %s: %w", path, e)
 	}
 	if s == nil {
 		return nil, nil
@@ -296,7 +296,7 @@ func pqcIssue(client *vaultapi.Client, dir string) (err error) {
 		cert, _ := d["certificate"].(string)
 		key, _ := d["private_key"].(string)
 		if cert == "" || key == "" {
-			return fmt.Errorf("Vault did not return %s leaf credentials", name)
+			return fmt.Errorf("vault did not return %s leaf credentials", name)
 		}
 		if e = pqcSave(dir, name+".pem", cert); e != nil {
 			return e
@@ -702,7 +702,7 @@ func runPQC(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !(bytes.Contains(out, []byte("Public Key Algorithm: ML-DSA-65")) && bytes.Contains(out, []byte("Signature Algorithm: ML-DSA-65"))) {
+		if !bytes.Contains(out, []byte("Public Key Algorithm: ML-DSA-65")) || !bytes.Contains(out, []byte("Signature Algorithm: ML-DSA-65")) {
 			return fmt.Errorf("%s CA is not ML-DSA-65", ca)
 		}
 	}
@@ -720,7 +720,7 @@ func runPQC(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if !(bytes.Contains(out, []byte("Public Key Algorithm: ML-DSA-65")) && bytes.Contains(out, []byte("Signature Algorithm: ML-DSA-65"))) {
+		if !bytes.Contains(out, []byte("Public Key Algorithm: ML-DSA-65")) || !bytes.Contains(out, []byte("Signature Algorithm: ML-DSA-65")) {
 			return fmt.Errorf("Vault %s certificate is not ML-DSA-65", leaf)
 		}
 	}

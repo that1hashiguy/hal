@@ -28,7 +28,7 @@ This skill covers the two-tier PKI CA chain and the K8s, ACME, and HSM demo mode
 
 ### `--k8s` mode (adds cert-manager + nginx demo)
 
-- Shared KinD cluster on `hal-net` via `ensureHALKindCluster()` (ports 30080→8088, 30082→8089, 30083→8090, 30084→8091)
+- Shared KinD cluster on `hal-net` via `ensureHALKindCluster()` (ports 30080→8088, 30082→8089, 30083→8090, 30084→8091, 30085→8093 for PQC)
 - Jetstack cert-manager (Helm, OCI chart, `webhook.hostNetwork=true` for KinD)
 - Dedicated Vault Kubernetes auth mount: `kubernetes-pki/`
 - ClusterIssuer: `vault-pki-issuer` → `pki-int/sign/hal-role`
