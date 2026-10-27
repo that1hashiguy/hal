@@ -394,7 +394,7 @@ Install kind, kubectl, Docker or Podman, and host OpenSSL with ML-DSA X.509
 support, which HAL uses to validate issued certificates before deployment.
 HAL supplies the pinned stock NGINX image, including OpenSSL and njs;
 these do not need to be installed separately on the host. Tested runtime
-versions and limitations are recorded in [INTEROPERABILITY.md](../../INTEROPERABILITY.md).
+versions and limitations are recorded in the findings below.
 
 `--pqc` implies the Kubernetes deployment. Explicit `--k8s` remains accepted
 for compatibility; status and the default action remain read-only.
@@ -423,12 +423,19 @@ Interrupted enable can be repeated. Conventional PKI, ACME, HSM, mount-tuning an
 force flags are rejected with PQC before mutation. Dry-run creates no keys,
 state or infrastructure.
 
-`--pqc-image` overrides the official distribution image. The default digest is
-in `cmd/vault/defaults.go`; overrides need the NGINX SSL variables, OpenSSL
-algorithms and bundled HTTP njs module used by this lab. Update the image pin and
-rerun the interoperability suite when upgrading. HAL pulls/reuses the image locally for compatibility checks; Kubernetes pulls
-the selected image directly from its registry. Overrides must be accessible
-from the cluster as well as the host; no compiler toolchain is needed.
+`--pqc-image` overrides the official distribution image. The tested default
+digest, also defined in `cmd/vault/defaults.go`, is:
+
+```text
+docker.io/library/nginx@sha256:1dd3048a04f4b76ebd706c1bbb9df7d9d53b4f8253b32ce14467088c9b5ada0f
+```
+
+Overrides need the NGINX SSL variables, OpenSSL algorithms and bundled HTTP njs
+module used by this lab. Rerun the opt-in integration suite when changing the
+image. HAL pulls or reuses the image locally for compatibility checks.
+Kubernetes pulls the selected image directly from its registry. Overrides must
+be accessible from the cluster as well as the host; no compiler toolchain is
+needed.
 `--kind-node-image` controls new cluster nodes. `--pqc-cluster-domain` must match
 an existing cluster's CoreDNS Kubernetes zone; new HAL clusters use `cluster.local`.
 
@@ -609,9 +616,6 @@ is available. Readiness is not authentication evidence.
 
 ### Interoperability findings
 
-The [interoperability record](../../INTEROPERABILITY.md) summarizes the tested
-versions, positive and negative results, and evidence gaps.
-
 The prior 2026-10-20 run on macOS arm64 used Vault `2.2.0+ent.hsm`,
 NGINX 1.31.3, OpenSSL 3.5.7 and bundled njs 1.0.0 from the official image
 pinned in `cmd/vault/defaults.go`; the host client used OpenSSL 3.6.3.
@@ -682,3 +686,13 @@ and removes only successfully created diagnostic mounts in reverse order on exit
 No CA keys are exported. Local ML-DSA issuance is used only for untrusted
 negative fixtures. The suite checks actual CLI handshakes and the stock NGINX
 backend and frontend proxy, including explicit clientAuth EKU policy.
+
+On 2026-10-27, this suite passed against a licensed Vault `2.2.0+ent` production
+deployment on code revision `7723af1`, using macOS arm64, host OpenSSL 3.6.3,
+Podman client 5.8.0 / Linux arm64 engine 5.5.2 and the pinned NGINX 1.31.3
+image with OpenSSL 3.5.7 and njs 1.0.0. All positive, negative and frontend
+proxy cases passed. The diagnostic Vault mounts and NGINX containers were gone
+after the run. This suite does not create a KinD cluster or exercise the HAL
+Kubernetes deployment lifecycle. The 2026-10-20 and 2026-10-22 deployment
+results above remain historical. No result is recorded for other operating
+systems, Vault or Kubernetes versions, container engines or image overrides.

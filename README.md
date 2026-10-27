@@ -607,5 +607,5 @@ an existing licensed Vault Enterprise 2.2.0+ and a compatible stock NGINX/OpenSS
 the isolated lab. `hal status` and `hal vault status` also report PQC deployment
 readiness. Workload certificates expire after ten seconds and rotate
 automatically about every five seconds. Click **Test connection** again to see a
-new frontend certificate serial and expiry. Use `--pqc-cert-ttl` to change the TTL. See [setup, browser trust and tests](docs/commands/vault-pki.md) and
-the [interoperability record](INTEROPERABILITY.md).
+new frontend certificate serial and expiry. Use `--pqc-cert-ttl` to change the TTL.
+See [setup, browser trust, tests and runtime findings](docs/commands/vault-pki.md).
