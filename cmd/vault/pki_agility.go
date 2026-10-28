@@ -238,10 +238,8 @@ func agilityIssue(client *vaultapi.Client, dir string) error {
 		}
 		if mode.name == "traditional" || mode.name == "pqc" {
 			// Each CA hierarchy has one role covering its two exact browser names.
-			allowed := []string{mode.dns}
-			if mode.name == "traditional" {
-				allowed = []string{agilityTraditionalDNS, agilityHybridDNS}
-			} else {
+			allowed := []string{agilityTraditionalDNS, agilityHybridDNS}
+			if mode.name == "pqc" {
 				allowed = []string{agilityPQCDNS, agilityPureDNS}
 			}
 			role := map[string]interface{}{
@@ -269,7 +267,7 @@ func agilityIssue(client *vaultapi.Client, dir string) error {
 		leaf, _ := data["certificate"].(string)
 		key, _ := data["private_key"].(string)
 		if leaf == "" || key == "" {
-			return fmt.Errorf("Vault returned incomplete %s browser credentials", mode.name)
+			return fmt.Errorf("vault returned incomplete %s browser credentials", mode.name)
 		}
 		inter, err := os.ReadFile(filepath.Join(dir, map[bool]string{true: "pqc", false: "traditional"}[mode.algorithm == "ML-DSA-65"]+"-intermediate.pem"))
 		if err != nil {

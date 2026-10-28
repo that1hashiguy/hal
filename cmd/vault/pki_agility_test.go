@@ -267,7 +267,11 @@ func TestAgilityKindPortMappings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(path)
+	t.Cleanup(func() {
+		if err := os.Remove(path); err != nil {
+			t.Errorf("remove KinD config: %v", err)
+		}
+	})
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
