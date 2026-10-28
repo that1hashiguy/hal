@@ -58,8 +58,8 @@ function backend(r) {
     try {
         let peer = certificate(v.ssl_client_raw_cert);
         if (peer.public_key_algorithm !== 'ML-DSA-65' || !peer.extended_key_usage.includes('TLS Web Client Authentication')
-            || v.ssl_protocol !== 'TLSv1.3' || v.ssl_client_sigalg !== 'mldsa65' || v.ssl_curve !== 'X25519MLKEM768') {
-            r.return(403, '{"error":"Required ML-DSA, explicit clientAuth EKU or hybrid ML-KEM policy not met"}'); return;
+            || v.ssl_protocol !== 'TLSv1.3' || v.ssl_client_sigalg !== 'mldsa65' || v.ssl_curve !== 'MLKEM768') {
+            r.return(403, '{"error":"Required ML-DSA, explicit clientAuth EKU or ML-KEM-768 policy not met"}'); return;
         }
         peer.subject = v.ssl_client_s_dn; peer.issuer = v.ssl_client_i_dn; peer.serial_number = v.ssl_client_serial;
         peer.valid_from = v.ssl_client_v_start; peer.valid_until = v.ssl_client_v_end;

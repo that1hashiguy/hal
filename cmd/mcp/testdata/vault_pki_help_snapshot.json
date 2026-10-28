@@ -61,7 +61,7 @@
       "name": "--no-hsm"
     },
     {
-      "description": "Use isolated ML-DSA-65 mutual TLS and hybrid ML-KEM lab (implies Kubernetes)",
+      "description": "Use isolated ML-DSA-65 mutual TLS and ML-KEM-768 lab (implies Kubernetes)",
       "name": "--pqc"
     },
     {
@@ -73,7 +73,7 @@
       "name": "--pqc-cluster-domain string"
     },
     {
-      "description": "Stock NGINX image with njs and ML-DSA/hybrid ML-KEM TLS support (default \"docker.io/library/nginx@sha256:1dd3048a04f4b76ebd706c1bbb9df7d9d53b4f8253b32ce14467088c9b5ada0f\")",
+      "description": "Stock NGINX image with njs and ML-DSA/ML-KEM-768 TLS support (default \"docker.io/library/nginx@sha256:1dd3048a04f4b76ebd706c1bbb9df7d9d53b4f8253b32ce14467088c9b5ada0f\")",
       "name": "--pqc-image string"
     },
     {

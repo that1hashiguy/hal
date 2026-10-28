@@ -7,6 +7,7 @@ from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import socket
@@ -82,21 +83,22 @@ def issue_and_verify(args, cleanup):
     with socket.socket() as sock:
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
-    server_cmd = [args.openssl, 's_server', '-accept', '127.0.0.1:' + str(port), '-cert', str(args.state / 'backend.pem'), '-key', str(args.state / 'backend.key'), '-cert_chain', str(args.state / 'intermediate.pem'), '-CAfile', str(args.state / 'root.pem'), '-Verify', '2', '-verify_return_error', '-purpose', 'sslclient', '-tls1_3', '-groups', 'X25519MLKEM768', '-sigalgs', 'mldsa65', '-www']
+    server_cmd = [args.openssl, 's_server', '-accept', '127.0.0.1:' + str(port), '-cert', str(args.state / 'backend.pem'), '-key', str(args.state / 'backend.key'), '-cert_chain', str(args.state / 'intermediate.pem'), '-CAfile', str(args.state / 'root.pem'), '-Verify', '2', '-verify_return_error', '-purpose', 'sslclient', '-tls1_3', '-groups', 'MLKEM768', '-sigalgs', 'mldsa65', '-www']
     with (args.state / 'server.log').open('w') as log:
         server = subprocess.Popen(server_cmd, stdout=log, stderr=log)
         try:
             time.sleep(0.5)
-            base = [args.openssl, 's_client', '-connect', '127.0.0.1:' + str(port), '-servername', host, '-verify_hostname', host, '-CAfile', str(args.state / 'root.pem'), '-verify_return_error', '-tls1_3', '-groups', 'X25519MLKEM768', '-sigalgs', 'mldsa65', '-ign_eof']
+            base = [args.openssl, 's_client', '-connect', '127.0.0.1:' + str(port), '-servername', host, '-verify_hostname', host, '-CAfile', str(args.state / 'root.pem'), '-verify_return_error', '-tls1_3', '-groups', 'MLKEM768', '-sigalgs', 'mldsa65', '-ign_eof']
             identity = ['-cert', str(args.state / 'frontend.pem'), '-key', str(args.state / 'frontend.key'), '-cert_chain', str(args.state / 'intermediate.pem')]
-            for name, cmd, expected in [('positive', base + identity, True), ('missing-client', base, False), ('wrong-eku', base + ['-cert', str(args.state / 'wrong-eku.pem'), '-key', str(args.state / 'wrong-eku.key'), '-cert_chain', str(args.state / 'intermediate.pem')], False), ('wrong-hostname', base + identity + ['-verify_hostname', 'wrong.invalid'], False), ('classical-only', base + identity + ['-groups', 'X25519'], False)]:
+            for name, cmd, expected in [('positive', base + identity, True), ('missing-client', base, False), ('wrong-eku', base + ['-cert', str(args.state / 'wrong-eku.pem'), '-key', str(args.state / 'wrong-eku.key'), '-cert_chain', str(args.state / 'intermediate.pem')], False), ('wrong-hostname', base + identity + ['-verify_hostname', 'wrong.invalid'], False), ('classical-only', base + identity + ['-groups', 'X25519'], False), ('hybrid-only', base + identity + ['-groups', 'X25519MLKEM768'], False)]:
                 result = subprocess.run(cmd, input='GET / HTTP/1.0\r\n\r\n', capture_output=True, text=True, timeout=15)
                 text = result.stdout + result.stderr
                 (args.state / (name + '.log')).write_text(text)
                 success = result.returncode == 0 and 'HTTP/1.0 200' in text
                 if success != expected:
                     raise RuntimeError(name + ' unexpected result; see ' + str(args.state / (name + '.log')))
-                if success and (not all((v in text for v in ['ML-DSA-65', 'X25519MLKEM768', 'TLSv1.3']))):
+                if success and (not all((v in text for v in ['ML-DSA-65', 'TLSv1.3']))
+                                or not re.search(r'(?:Negotiated TLS1\.3 group|Server Temp Key):\s*MLKEM768(?:\s|$)', text)):
                     raise RuntimeError('Positive handshake lacks required observed algorithm evidence')
                 evidence.append(name + ': PASS (HTTP success=' + str(success) + ')')
                 print(evidence[-1])
@@ -132,11 +134,11 @@ def test_nginx(args, assets):
             run(args.engine, 'run', '-d', '--name', name, '-p', '127.0.0.1::8443', '-p', '127.0.0.1::8444', '-v', str(tmp / 'identity') + ':/identity:ro', '-v', str(tmp / 'trust') + ':/trust:ro', '-v', str(tmp / 'app') + ':/app:ro', '-v', str(tmp / 'nginx.conf') + ':/etc/nginx/nginx.conf:ro', '--entrypoint', 'nginx', args.image, '-g', 'daemon off;')
             time.sleep(0.5)
             port = run(args.engine, 'port', name, '8443/tcp').strip().split(':')[-1]
-            base = [args.openssl, 's_client', '-connect', '127.0.0.1:' + port, '-servername', 'backend.hal-pqc.svc.cluster.local', '-verify_hostname', 'backend.hal-pqc.svc.cluster.local', '-CAfile', str(args.state / 'root.pem'), '-verify_return_error', '-tls1_3', '-groups', 'X25519MLKEM768', '-sigalgs', 'mldsa65', '-ign_eof']
+            base = [args.openssl, 's_client', '-connect', '127.0.0.1:' + port, '-servername', 'backend.hal-pqc.svc.cluster.local', '-verify_hostname', 'backend.hal-pqc.svc.cluster.local', '-CAfile', str(args.state / 'root.pem'), '-verify_return_error', '-tls1_3', '-groups', 'MLKEM768', '-sigalgs', 'mldsa65', '-ign_eof']
 
             def identity(n):
                 return ['-cert', str(args.state / (n + '.pem')), '-key', str(args.state / (n + '.key')), '-cert_chain', str(args.state / 'intermediate.pem')]
-            tests = [('positive', base + identity('frontend'), True), ('missing-client', base, False), ('wrong-eku', base + identity('wrong-eku'), False), ('wrong-hostname', base + identity('frontend') + ['-verify_hostname', 'wrong.invalid'], False), ('untrusted-client', base + ['-cert', str(tmp / 'rogue.pem'), '-key', str(tmp / 'rogue.key'), '-cert_chain', str(tmp / 'rogue-root.pem')], False), ('untrusted-backend', base + identity('frontend') + ['-CAfile', str(tmp / 'rogue-root.pem')], False), ('classical-only', base + identity('frontend') + ['-groups', 'X25519'], False), ('missing-client-eku', base + identity('no-eku'), False), ('expired-client', base + identity('expired'), False)]
+            tests = [('positive', base + identity('frontend'), True), ('missing-client', base, False), ('wrong-eku', base + identity('wrong-eku'), False), ('wrong-hostname', base + identity('frontend') + ['-verify_hostname', 'wrong.invalid'], False), ('untrusted-client', base + ['-cert', str(tmp / 'rogue.pem'), '-key', str(tmp / 'rogue.key'), '-cert_chain', str(tmp / 'rogue-root.pem')], False), ('untrusted-backend', base + identity('frontend') + ['-CAfile', str(tmp / 'rogue-root.pem')], False), ('classical-only', base + identity('frontend') + ['-groups', 'X25519'], False), ('hybrid-only', base + identity('frontend') + ['-groups', 'X25519MLKEM768'], False), ('missing-client-eku', base + identity('no-eku'), False), ('expired-client', base + identity('expired'), False)]
             for label, cmd, expected in tests:
                 before = subprocess.run([args.engine, 'logs', name], capture_output=True, text=True).stderr.count('authenticated request processed')
                 result = subprocess.run(cmd, input='GET / HTTP/1.0\r\nHost: backend\r\n\r\n', capture_output=True, text=True, timeout=15)
@@ -156,7 +158,7 @@ def test_nginx(args, assets):
                     assert data['connection']['tls_session']['protocol'] == 'TLSv1.3'
                     assert data['connection']['tls_session']['local_handshake_signature_scheme'] == 'mldsa65'
                     assert data['connection']['tls_session']['peer_handshake_signature_scheme'] == 'mldsa65'
-                    assert data['connection']['tls_session']['key_exchange_group'] == 'X25519MLKEM768'
+                    assert data['connection']['tls_session']['key_exchange_group'] == 'MLKEM768'
                     (args.state / 'nginx-connection.json').write_text(json.dumps(data, indent=2) + '\n')
                 else:
                     logs = subprocess.run([args.engine, 'logs', name], capture_output=True, text=True).stderr
@@ -192,7 +194,7 @@ def test_nginx(args, assets):
                     if label == 'frontend-positive':
                         assert data['frontend_verification']['chain_and_hostname_verified']
                         assert data['frontend_observed_backend'] is None
-                        assert data['backend_response']['connection']['tls_session']['key_exchange_group'] == 'X25519MLKEM768'
+                        assert data['backend_response']['connection']['tls_session']['key_exchange_group'] == 'MLKEM768'
                         assert data['browser_connection']['key_exchange_group'] in ('X25519', 'prime256v1')
                         (args.state / 'nginx-frontend-connection.json').write_text(json.dumps(data, indent=2) + '\n')
                     if label != 'frontend-positive':

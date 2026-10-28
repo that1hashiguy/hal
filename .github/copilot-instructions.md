@@ -96,6 +96,6 @@ Require a running licensed Vault Enterprise 2.2.0+ and live ML-DSA API support.
 Do not infer PQC from HSM support or replace Vault. Shared KinD reserves 8093 →
 30085; older clusters use explicit port-forward without recreation. All co-tenant
 guards must preserve `hal-pqc`. Stock NGINX/OpenSSL verifies the actual peer and negotiates
-`mldsa65` plus `X25519MLKEM768`; Go only orchestrates. Conventional ECDSA browser
+`mldsa65` plus standalone `MLKEM768`; Go only orchestrates. Conventional ECDSA browser
 HTTPS is separate. Readiness and certificate-file parsing are never authentication
 or negotiated-key-agreement evidence. See `docs/commands/vault-pki.md`.

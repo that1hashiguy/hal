@@ -312,7 +312,7 @@ Both pods use pinned stock NGINX/OpenSSL with bundled njs. Kubernetes pulls the
 selected registry image directly; Go orchestrates deployment. NGINX verifies TLS;
 njs formats verified-peer metadata and requires explicit clientAuth EKU.
 Unavailable fields remain null. Only actual connection observations establish
-both ML-DSA signatures and X25519MLKEM768; readiness and certificate parsing do not.
+both ML-DSA signatures and standalone MLKEM768; readiness and certificate parsing do not.
 Browser HTTPS uses a separate conventional ECDSA identity.
 
 Shared KinD co-tenant guards include `hal-pqc`. Use direct host port 8093 when

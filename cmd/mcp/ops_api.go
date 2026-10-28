@@ -149,7 +149,7 @@ func mcpOpsTools() []map[string]interface{} {
 		},
 		{
 			"name":        "get_vault_pki_status",
-			"description": "Return Vault PKI readiness: Root/Intermediate CA engines, hal-role, optional auto-detected SoftHSM2 PKCS#11 managed key, cert-manager (--k8s), ACME/Caddy (--acme), and isolated ML-DSA/hybrid ML-KEM (--pqc) workload readiness. Readiness is not cryptographic proof.",
+			"description": "Return Vault PKI readiness: Root/Intermediate CA engines, hal-role, optional auto-detected SoftHSM2 PKCS#11 managed key, cert-manager (--k8s), ACME/Caddy (--acme), and isolated ML-DSA/ML-KEM-768 (--pqc) workload readiness. Readiness is not cryptographic proof.",
 			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		},
 		{

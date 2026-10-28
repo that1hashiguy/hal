@@ -331,7 +331,7 @@ Whenever CLI behavior, verbs, or lifecycle semantics change:
 ## Post-quantum PKI lab
 
 `hal vault pki [enable|update|disable|status] --pqc` selects isolated ML-DSA-65
-PKI and a stock NGINX/OpenSSL hybrid ML-KEM mutual-TLS lab. `--pqc` implies
+PKI and a stock NGINX/OpenSSL ML-KEM-768 mutual-TLS lab. `--pqc` implies
 Kubernetes; explicit `--k8s` remains accepted. No action means read-only status
 and a copy-pasteable Next Step. Requires a running licensed Vault Enterprise
 2.2.0+ deployment, provisioned through `hal vault create`; never replace its runtime.
