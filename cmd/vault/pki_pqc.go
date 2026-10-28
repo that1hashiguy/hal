@@ -798,8 +798,8 @@ func init() {
 		return nil
 	}
 	f := vaultPKICmd.Flags()
-	f.BoolVar(&pkiPQC, "pqc", false, "Use isolated ML-DSA-65 mutual TLS and hybrid ML-KEM lab (implies Kubernetes)")
+	f.BoolVar(&pkiPQC, "pqc", false, "Use isolated ML-DSA-65 mutual TLS and ML-KEM-768 lab (implies Kubernetes)")
 	f.StringVar(&pqcCertTTL, "pqc-cert-ttl", pqcDefaultCertTTL, "PQC workload certificate TTL (10s to 24h); automatically rotates at half lifetime")
-	f.StringVar(&pqcImage, "pqc-image", pqcDefaultImage, "Stock NGINX image with njs and ML-DSA/hybrid ML-KEM TLS support")
+	f.StringVar(&pqcImage, "pqc-image", pqcDefaultImage, "Stock NGINX image with njs and ML-DSA/ML-KEM-768 TLS support")
 	f.StringVar(&pqcDomain, "pqc-cluster-domain", pqcDefaultDomain, "Actual Kubernetes Service DNS domain")
 }

@@ -352,7 +352,7 @@ Flags (mode selection and enable/update):
   --hsm                       Require HSM-backed CAs; error if Vault is not an HSM build
   --no-hsm                    Force software-backed CAs on an HSM build
   --softhsm-* flags           Token label / PINs / key labels / managed-key name
-  --pqc                       Use isolated ML-DSA-65 mutual TLS and hybrid ML-KEM lab
+  --pqc                       Use isolated ML-DSA-65 mutual TLS and ML-KEM-768 lab
   --pqc-cert-ttl string       PQC workload certificate TTL (default "10s", range 10s–24h)
   --pqc-image string          Stock NGINX image with njs and PQC TLS support (pinned digest by default)
   --pqc-cluster-domain string Kubernetes Service DNS domain (default "cluster.local")
@@ -372,7 +372,7 @@ a static dashboard and a small njs evidence/policy module into stock NGINX.
 
 ```text
 Browser -- conventional ECDSA HTTPS --> frontend NGINX
-frontend NGINX -- ML-DSA-65 mTLS + X25519MLKEM768, TLS 1.3 --> backend NGINX
+frontend NGINX -- ML-DSA-65 mTLS + MLKEM768, TLS 1.3 --> backend NGINX
 ```
 
 ### Prerequisites
@@ -453,8 +453,9 @@ kubectl --context kind-kind -n hal-pqc port-forward --address 127.0.0.1 service/
 Open <https://localhost:8093> or <https://pqc.localhost:8093>, then click
 **Test connection**. The frontend verifies the backend's
 chain and full Service DNS name and presents its own ML-DSA client chain.
-Both endpoints require TLS 1.3, `mldsa65` and `X25519MLKEM768`; session reuse is
-disabled so evidence belongs to a full handshake.
+Both endpoints require TLS 1.3, `mldsa65` and the standalone `MLKEM768` group;
+session reuse is disabled so evidence belongs to a full handshake. The workload
+hop has no X25519 component. Browser HTTPS remains conventional.
 
 ### Short-lived workload certificates
 
@@ -564,15 +565,15 @@ The demo page starts with **Create identities**, a selectable root → intermedi
 placement, presentation chains and root trust. This is a provisioning architecture
 guide, not live issuance evidence. **Follow the connection** leads to **Use
 identities** and the interactive Browser → Frontend → Backend diagram. The
-key-establishment step visualizes X25519 and ML-KEM-768 contributing to TLS
-session keys: Vault supplies ML-DSA identities; NGINX/OpenSSL establishes the
+key-establishment step visualizes ML-KEM-768 establishing TLS session keys:
+Vault supplies ML-DSA identities; NGINX/OpenSSL establishes the
 session keys during the handshake.
 Select a node or a connection to inspect its observed trust checks, certificate
 identity and validity, or negotiated session algorithms. The inspector defaults to the workload connection. Running **Test connection**
 provides a four-step guided story: identify the workloads, verify each other,
 establish keys, and exchange data. Each selectable step explains its purpose,
 shows its last-test result, and offers relevant expandable evidence. Mutual
-identity verification and hybrid post-quantum key establishment remain explicit
+identity verification and ML-KEM-768 key establishment remain explicit
 verification results. The steps explain the handshake conceptually; they do not
 represent live timing or a packet trace. A local completion timestamp labels the last
 successful test; retrying clears previous results. Node selection provides
@@ -600,8 +601,8 @@ the original response, including unavailable metadata reported as `null`.
 | frontend_observed_backend | `null`: HTTP proxy bindings do not expose upstream certificate/session metadata |
 | browser_connection | NGINX SSL variables for the browser's actual `/test` request |
 
-Backend observations establish both ML-DSA handshake signatures and the hybrid
-ML-KEM group **on the same connection**. Frontend upstream metadata is not
+Backend observations establish both ML-DSA handshake signatures and the standalone
+`MLKEM768` group **on the same connection**. Frontend upstream metadata is not
 fabricated or copied from certificate files. The full chain anchor is not guessed
 from configured trust. Readiness/status and cipher-suite names alone never prove
 post-quantum authentication or key establishment.
@@ -670,6 +671,18 @@ snapshots, issuance failure/recovery, expired readiness, token renewal and
 concurrent invocation guards; page tests cover first, changed, unchanged and
 failed connection states. Interactive browser validation and destructive live
 teardown were not performed for this change.
+
+### Standalone ML-KEM-768 validation (2026-10-28)
+
+The current configuration pins `MLKEM768` at both workload TLS endpoints and
+requires that exact observed group in the backend policy and browser evidence.
+The pinned stock NGINX image completed a temporary two-container frontend →
+backend mTLS request using locally issued ML-DSA-65 certificates. The response
+confirmed chain and hostname verification, both `mldsa65` handshake signatures,
+and `MLKEM768` from the backend's `$ssl_curve`. The actual backend config rejected
+clients offering only `X25519MLKEM768` or `X25519`. The Go vault and MCP package
+tests and the page test passed. The Vault-issued, two-pod integration suite has
+not been rerun for this change.
 
 ### Contributor integration validation
 

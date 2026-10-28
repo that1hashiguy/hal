@@ -69,6 +69,6 @@ Never replace Vault or use SoftHSM availability as evidence of ML-DSA support.
 
 Preserve namespace `hal-pqc` in shared KinD cleanup. Use direct host port 8093
 when mapped, otherwise the status-provided port-forward. Browser ECDSA HTTPS
-and internal ML-DSA/hybrid ML-KEM mTLS are separate trust decisions. Only actual
+and internal ML-DSA/ML-KEM-768 mTLS are separate trust decisions. Only actual
 verified connection evidence establishes authentication and negotiation;
 readiness and parsed certificates do not. See `docs/commands/vault-pki.md`.

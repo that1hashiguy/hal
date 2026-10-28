@@ -601,7 +601,7 @@ Keep all three in sync when adding or renaming commands.
 ### Post-quantum PKI lab
 
 Use `hal vault pki enable --pqc` for Vault-issued ML-DSA-65 mutual TLS with
-hybrid X25519MLKEM768 between two pods, behind conventional browser HTTPS. Requires
+standalone MLKEM768 key exchange between two pods, behind conventional browser HTTPS. Requires
 an existing licensed Vault Enterprise 2.2.0+ and a compatible stock NGINX/OpenSSL image.
 `hal vault pki status --pqc`, `update --pqc` and `disable --pqc` manage
 the isolated lab. `hal status` and `hal vault status` also report PQC deployment

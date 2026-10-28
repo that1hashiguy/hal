@@ -5,7 +5,7 @@ const mapNotes = {
   classic: ["CONVENTIONAL CA", "pki-root signs pki-int. The crypto agility app receives two seven-day RSA server leaves from this chain: one for Traditional, one for Hybrid key exchange."],
   pqc: ["POST-QUANTUM CA", "hal-pqc-root signs hal-pqc-int. The browser app receives two ML-DSA-65 server leaves; the workload lab receives distinct clientAuth and serverAuth leaves. The CA private keys stay inside Vault."],
   agility: ["BROWSER APP", "The hal-crypto-agility namespace has one NGINX pod, one Service, and four HTTPS listeners. NGINX terminates browser TLS, serves /index.html from its mounted ConfigMap, and handles /diagnostics with njs in the same pod."],
-  workloads: ["WORKLOAD LAB", "The hal-pqc namespace has frontend and backend NGINX pods. Browser HTTPS ends at the frontend. A separate private connection to the backend performs ML-DSA-65 mutual TLS with hybrid X25519MLKEM768."]
+  workloads: ["WORKLOAD LAB", "The hal-pqc namespace has frontend and backend NGINX pods. Browser HTTPS ends at the frontend. A separate private connection to the backend performs ML-DSA-65 mutual TLS with standalone MLKEM768."]
 };
 const mapDetail = document.getElementById("map-detail");
 document.querySelectorAll("[data-map]").forEach(button => {

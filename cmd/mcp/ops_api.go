@@ -149,7 +149,7 @@ func mcpOpsTools() []map[string]interface{} {
 		},
 		{
 			"name":        "get_vault_pki_status",
-			"description": "Return Vault PKI readiness: conventional engines and integrations, isolated ML-DSA/hybrid workload readiness (--pqc), and browser crypto agility readiness (--agility). Readiness is not cryptographic proof or browser trust.",
+			"description": "Return Vault PKI readiness: conventional engines and integrations, isolated ML-DSA/ML-KEM-768 workload readiness (--pqc), and browser crypto agility readiness (--agility). Readiness is not cryptographic proof or browser trust.",
 			"inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}},
 		},
 		{
