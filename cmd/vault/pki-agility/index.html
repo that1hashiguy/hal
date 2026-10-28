@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HAL · Crypto agility</title>
+  <style>
+    :root { color-scheme: dark; font: 16px/1.5 system-ui, sans-serif; background:#101923; color:#e9f1f6 }
+    body { max-width: 1050px; margin: 0 auto; padding: 3rem 1.5rem 5rem }
+    h1 { font-size: clamp(2.2rem, 7vw, 4rem); line-height: 1.05; margin: .2rem 0 1.2rem }
+    h2 { margin-top: 2rem; font-size: 1.2rem }
+    .eyebrow { color:#80d5c5; letter-spacing:.15em; text-transform:uppercase; font-size:.8rem }
+    .intro { color:#b9c9d3; max-width: 65ch }
+    nav { display:grid; grid-template-columns: repeat(2,1fr); gap:.75rem; margin:2rem 0 }
+    nav a { display:block; padding:1rem; border:1px solid #4f6674; border-radius:.6rem; color:inherit; text-decoration:none; background:#1a2935 }
+    nav a:hover, nav a:focus { border-color:#80d5c5; outline:2px solid #80d5c5; outline-offset:2px }
+    nav a[aria-current] { background:#17443f; border-color:#80d5c5 }
+    nav small { display:block; color:#b9c9d3; margin-top:.3rem; overflow-wrap:anywhere }
+    .tabs { display:flex; gap:.5rem; border-bottom:1px solid #4f6674; margin:1.5rem 0 }
+    .tabs button, .action { border:1px solid #4f6674; border-radius:.4rem .4rem 0 0; background:#1a2935; color:inherit; padding:.7rem 1rem; font:inherit; cursor:pointer }
+    .tabs button[aria-selected="true"] { background:#17443f; border-color:#80d5c5 }
+    button:focus-visible { outline:2px solid #80d5c5; outline-offset:2px }
+    .action { border-radius:.4rem; margin:.6rem 0 1rem }
+    .action:disabled { opacity:.6; cursor:wait }
+    .table-wrap { overflow-x:auto }
+    table { width:100%; border-collapse:collapse; font-size:.88rem; min-width:720px }
+    th, td { text-align:left; padding:.7rem .55rem; border-bottom:1px solid #334957; vertical-align:top }
+    th { color:#b9c9d3; font-weight:600 }
+    td:first-child { font-weight:700 }
+    .note { color:#b9c9d3; font-size:.9rem }
+    .experimental { border-left:4px solid #e7b76a; padding:.7rem 1rem; background:#473626 }
+    .perf-frame { position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; border:0 }
+    section { border-top:1px solid #334957; padding-top:.2rem }
+    dl { display:grid; grid-template-columns: minmax(10rem, 1fr) 2fr; gap:.55rem 1rem }
+    dt { color:#b9c9d3 } dd { margin:0; overflow-wrap:anywhere; font-family:ui-monospace, monospace; font-size:.88rem }
+    .status { padding:.8rem 1rem; border-radius:.4rem; background:#273b48 }
+    .status.ok { background:#17443f } .status.bad { background:#65323c }
+    code { color:#a8e8dc; overflow-wrap:anywhere }
+    @media(max-width:600px) { nav {grid-template-columns:1fr} dl {grid-template-columns:1fr} dd {margin-bottom:.5rem} }
+  </style>
+</head>
+<body>
+  <div class="eyebrow">HAL / Vault PKI / local lab</div>
+  <h1>Crypto agility, in the browser</h1>
+  <p class="intro">Select a mode to navigate to a different local hostname. Each navigation opens a new HTTPS connection with its own server certificate and required key exchange group.</p>
+  <nav aria-label="TLS mode">
+    <a href="https://traditional.agility.localhost:8094/" data-mode="traditional"><strong>Traditional</strong><small>RSA certificate · X25519</small></a>
+    <a href="https://hybrid.agility.localhost:8095/" data-mode="hybrid"><strong>Hybrid key exchange</strong><small>RSA certificate · X25519MLKEM768 hybrid key exchange</small></a>
+    <a href="https://pqc.agility.localhost:8096/" data-mode="pqc"><strong>Hybrid + PQC certificate</strong><small>Vault-issued ML-DSA-65 certificate · X25519MLKEM768 hybrid key exchange</small></a>
+    <a href="https://pure.agility.localhost:8097/" data-mode="pure" target="_blank" rel="noopener"><strong>Pure PQC · experimental</strong><small>ML-DSA-65 certificate · standalone MLKEM768 key exchange</small></a>
+  </nav>
+  <p class="experimental" role="note"><strong>Experimental pure PQC:</strong> The connection will likely fail in a standard browser because it requires standalone MLKEM768. The link opens a new tab so this demo stays available. Use an OpenSSL 3.5+ client to verify the listener.</p>
+  <div class="tabs" role="tablist" aria-label="Demo view">
+    <button id="evidence-tab" type="button" role="tab" aria-selected="true" aria-controls="evidence-panel">TLS evidence</button>
+    <button id="performance-tab" type="button" role="tab" aria-selected="false" aria-controls="performance-panel" tabindex="-1">Performance</button>
+  </div>
+  <div id="evidence-panel" role="tabpanel" aria-labelledby="evidence-tab">
+    <p id="status" class="status" role="status">Reading server TLS evidence…</p>
+    <section><h2>Configured certificate</h2><dl id="configured"></dl></section>
+    <section><h2>Server-observed connection</h2><dl id="observed"></dl></section>
+    <section><h2>Browser trust check</h2>
+      <p>Click Chrome's site information icon, open <strong>Connection is secure</strong> and <strong>Certificate is valid</strong>, then inspect the subject, DNS SAN, issuer, chain and fingerprint. Check the hostname in the address bar. This page cannot read Chrome's trust decision or diagnose a handshake that failed before it loaded.</p>
+      <p>These are private Vault roots. Trust them explicitly using the instructions in <code>docs/commands/vault-pki.md</code>. The ML-DSA-65 certificate modes are separate from the workload mTLS demo and do not imply public trust.</p>
+    </section>
+  </div>
+  <div id="performance-panel" role="tabpanel" aria-labelledby="performance-tab" hidden>
+    <h2>Local connection comparison</h2>
+    <p class="intro">These measurements describe this browser and local HAL lab. They are not universal algorithm rankings. Chain size is the DER bytes sent for the leaf and intermediate certificates, excluding the trusted root.</p>
+    <button id="measure-browser" class="action" type="button">Measure browser page loads</button>
+    <p id="performance-status" class="note" role="status">Browser timings are unavailable until measured.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Mode</th><th scope="col">Chain size</th><th scope="col">Connection</th><th scope="col">TLS</th><th scope="col">Time to first byte</th><th scope="col">Browser sample</th></tr></thead>
+      <tbody>
+        <tr data-perf-mode="traditional"><td>Traditional</td><td data-field="chain">Unavailable</td><td data-field="connection">Unavailable</td><td data-field="tls">Unavailable</td><td data-field="ttfb">Unavailable</td><td data-field="status">Not measured</td></tr>
+        <tr data-perf-mode="hybrid"><td>Hybrid key exchange</td><td data-field="chain">Unavailable</td><td data-field="connection">Unavailable</td><td data-field="tls">Unavailable</td><td data-field="ttfb">Unavailable</td><td data-field="status">Not measured</td></tr>
+        <tr data-perf-mode="pqc"><td>Hybrid + PQC certificate</td><td data-field="chain">Unavailable</td><td data-field="connection">Unavailable</td><td data-field="tls">Unavailable</td><td data-field="ttfb">Unavailable</td><td data-field="status">Not measured</td></tr>
+        <tr data-perf-mode="pure"><td>Pure PQC · experimental</td><td data-field="chain">Unavailable</td><td data-field="connection">Unavailable</td><td data-field="tls">Unavailable</td><td data-field="ttfb">Unavailable</td><td data-field="status">Not measured</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">Browser values are medians of up to eight page navigations per mode, after one warmup per mode. Sampling order rotates so each mode occupies each position twice. Pure PQC is expected to be unavailable in standard browsers. Connection includes TCP and TLS; TLS is its portion of that interval. Time to first byte is <code>responseStart − requestStart</code>. Missing or reused connection timing is excluded; if none is available, the cell shows unavailable. The benchmark command in <code>docs/commands/vault-pki.md</code> records at least 30 fresh, verified handshakes per mode with raw samples and median/p95.</p>
+  </div>
+  <script>
+    const current = location.hostname.split('.')[0];
+    document.querySelectorAll('nav a').forEach(a => { if (a.dataset.mode === current) a.setAttribute('aria-current','page'); });
+    const labels = {
+      mode:'Mode', certificate_authentication:'Certificate authentication', certificate_dns_name:'DNS identity',
+      certificate_sha256_fingerprint:'Certificate SHA-256 fingerprint', required_group:'Required key exchange',
+      sni:'SNI', tls_version:'TLS version', cipher_suite:'Cipher suite',
+      local_handshake_signature_scheme:'Server handshake signature', negotiated_group:'Negotiated key exchange'
+    };
+    function fill(id, data) {
+      const root = document.getElementById(id);
+      Object.entries(data).forEach(([key,value]) => {
+        const dt=document.createElement('dt'), dd=document.createElement('dd');
+        dt.textContent=labels[key]||key; dd.textContent=value ?? 'Unavailable';
+        root.append(dt,dd);
+      });
+    }
+    fetch('/diagnostics', {cache:'no-store'}).then(async response => {
+      const data = await response.json();
+      fill('configured',data.configured);
+      fill('observed',data.server_observed);
+      const status=document.getElementById('status');
+      status.classList.add(response.ok && data.server_policy_match ? 'ok':'bad');
+      status.textContent=response.ok && data.server_policy_match
+        ? 'Server-observed TLS settings match this mode. Inspect Chrome to confirm trust.'
+        : 'Server TLS evidence does not match this mode. Check the deployment and do not treat this connection as verified.';
+    }).catch(() => {
+      const status=document.getElementById('status');
+      status.classList.add('bad');
+      status.textContent='Diagnostics could not be loaded. This page makes no TLS evidence claim.';
+    });
+  </script>
+  <script src="/performance.js" defer></script>
+</body>
+</html>
