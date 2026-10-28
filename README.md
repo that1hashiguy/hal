@@ -609,8 +609,6 @@ readiness. Workload certificates expire after ten seconds and rotate
 automatically about every five seconds. Click **Test connection** again to see a
 new frontend certificate serial and expiry. Use `--pqc-cert-ttl` to change the TTL.
 See [setup, browser trust, tests and runtime findings](docs/commands/vault-pki.md).
-Read the [illustrated PQC architecture and crypto agility guide](docs/pqc-architecture/index.html)
-for the CA chains, traffic paths, and browser support boundaries.
 
 ### Browser crypto agility demo
 
