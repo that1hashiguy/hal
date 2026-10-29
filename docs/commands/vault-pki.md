@@ -556,33 +556,14 @@ identity from headers, or treat parsing as verification.
 
 ### Evidence semantics
 
-The demo page starts with **Create identities**, a selectable root → intermediate
-→ frontend/backend leaf certificate hierarchy explaining Vault issuance, workload
-placement, presentation chains and root trust. This is a provisioning architecture
-guide, not live issuance evidence. **Follow the connection** leads to **Use
-identities** and the interactive Browser → Frontend → Backend diagram. The
-key-establishment step visualizes ML-KEM-768 establishing TLS session keys:
-Vault supplies ML-DSA identities; NGINX/OpenSSL establishes the
-session keys during the handshake.
-Select a node or a connection to inspect its observed trust checks, certificate
-identity and validity, or negotiated session algorithms. The inspector defaults to the workload connection. Running **Test connection**
-provides a four-step guided story: identify the workloads, verify each other,
-establish keys, and exchange data. Each selectable step explains its purpose,
-shows its last-test result, and offers relevant expandable evidence. Mutual
-identity verification and ML-KEM-768 key establishment remain explicit
-verification results. The steps explain the handshake conceptually; they do not
-represent live timing or a packet trace. A local completion timestamp labels the last
-successful test; retrying clears previous results. Node selection provides
-context, with certificate and session fields under **How do we know? View
-technical evidence**. Backend certificate details unavailable from the proxy
-remain explicitly unavailable. Bidirectional green solid lines show mutual authentication;
-purple dashed lines show joint key establishment on the same TLS connection.
-Blue denotes browser HTTPS. Labels and patterns distinguish the lanes alongside
-color. These represent authentication and key exchange, not a separate application
-authorization policy. Moving markers illustrate the last successful test rather
-than live traffic. Failed tests clear previous results. Browser HTTPS and
-workload mTLS remain separate. Expand **Raw connection evidence / JSON** to inspect
-the original response, including unavailable metadata reported as `null`.
+The demo page shows a Browser → Frontend → Backend connection diagram and the
+frontend certificate's observed remaining lifetime. **Test connection** verifies
+mutual ML-DSA-65 authentication and ML-KEM-768 key exchange, updates the diagram,
+and reports certificate rotation when the observed serial changes. The countdown
+and moving markers reflect the last successful test, not live traffic. Failed
+tests clear the displayed verification state. Browser HTTPS and workload mTLS
+remain separate. Expand **Raw connection evidence / JSON** for the original
+response, including unavailable metadata reported as `null`.
 
 | Reported field | Source |
 | --- | --- |
