@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -368,8 +369,9 @@ func TestVaultPKIIndependentExecutions(t *testing.T) {
 			t.Fatal("PQC execution changed conventional PKI success semantics")
 		}
 		var payload struct {
-			Data   map[string]toolExecution `json:"data"`
-			Checks []opCheck                `json:"checks"`
+			Data                map[string]toolExecution `json:"data"`
+			Checks              []opCheck                `json:"checks"`
+			RecommendedCommands []string                 `json:"recommended_commands"`
 		}
 		if err := json.Unmarshal([]byte(result.Content[0].Text), &payload); err != nil {
 			t.Fatal(err)
@@ -379,6 +381,9 @@ func TestVaultPKIIndependentExecutions(t *testing.T) {
 		}
 		if payload.Data["pqc_execution"].ExitCode != pqcExit {
 			t.Fatal("PQC failure hidden")
+		}
+		if !slices.Contains(payload.RecommendedCommands, "hal vault pki enable --agility") {
+			t.Fatal("agility one-command enable recommendation missing")
 		}
 		checksByName := map[string]string{}
 		for _, check := range payload.Checks {

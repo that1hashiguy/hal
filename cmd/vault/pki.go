@@ -409,6 +409,13 @@ var vaultPKICmd = &cobra.Command{
 	},
 }
 
+func pkiIssuerPolicy() string {
+	return fmt.Sprintf(`
+path "%s/sign/hal-role"  { capabilities = ["create", "update"] }
+path "%s/issue/hal-role" { capabilities = ["create", "update"] }
+`, pkiIntMount, pkiIntMount)
+}
+
 // runVaultPKISetup creates the Root CA and Intermediate CA chain in Vault.
 func runVaultPKISetup(client *vault.Client, isUpdate bool) {
 	if isUpdate {
@@ -510,11 +517,7 @@ func runVaultPKISetup(client *vault.Client, isUpdate bool) {
 	fmt.Println("  ✅ Role 'hal-role' created.")
 
 	// ---- Policy ----
-	pkiPolicy := fmt.Sprintf(`
-path "%s/sign/hal-role"  { capabilities = ["create", "update"] }
-path "%s/issue/hal-role" { capabilities = ["create", "update"] }
-`, pkiIntMount, pkiIntMount)
-	_ = client.Sys().PutPolicy("hal-pki-issuer", pkiPolicy)
+	_ = client.Sys().PutPolicy("hal-pki-issuer", pkiIssuerPolicy())
 	fmt.Println("  ✅ Policy 'hal-pki-issuer' written.")
 
 	// ---- ACME endpoint + short-lived demo role ----

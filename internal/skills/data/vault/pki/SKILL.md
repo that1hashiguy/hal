@@ -185,14 +185,16 @@ readiness and parsed certificates do not. See `docs/commands/vault-pki.md`.
 
 ### Browser crypto agility
 
-After both conventional and PQC CA hierarchies exist, use
-`hal vault pki enable --agility` for a separate browser app. Traditional
+With a running, licensed Vault Enterprise 2.2.0+ instance, use
+`hal vault pki enable --agility` for a separate browser app. It enables missing
+conventional PKI and PQC lab prerequisites. Traditional
 is RSA/X25519 at `traditional.agility.localhost:8094`; Hybrid key exchange is
 RSA/X25519MLKEM768 at `hybrid.agility.localhost:8095`; Hybrid + PQC certificate
 is ML-DSA-65/X25519MLKEM768 at `pqc.agility.localhost:8096`; experimental
 Pure PQC is ML-DSA-65/MLKEM768 at `pure.agility.localhost:8097`.
-`status|update|disable --agility` manage only its own roles, namespace and
-local state. Chrome 150+ and manual trust of both private roots are needed.
+`status|update|disable --agility` manage its roles and namespace. Disable also
+removes prerequisites created by this agility lifecycle; pre-existing CAs and
+other KinD users remain. Chrome 150+ and manual trust of both private roots are needed.
 The page cannot report Chrome trust or a failed handshake. See
 `docs/commands/vault-pki.md` for trust setup and removal.
 

@@ -20,8 +20,9 @@ PKI is a Vault feature, not a standalone product. It lives under `hal vault pki`
 - HAL CLI is available in your local environment.
 - `hal vault create` has been run and Vault is healthy at `http://127.0.0.1:8200`.
 - For `--k8s`: `kind`, `kubectl`, and `helm` must be installed and in PATH.
-- For `--agility`: `kind`, `kubectl`, OpenSSL 3.5+, both existing CA
-  hierarchies, and a licensed Vault Enterprise 2.2.0+ with ML-DSA issuance.
+- For `--agility`: `kind`, `kubectl`, OpenSSL 3.5+, and a running, licensed
+  Vault Enterprise 2.2.0+ with ML-DSA issuance. HAL provisions missing CA
+  hierarchies and the PQC workload lab.
 - For HSM-backed CAs: deploy first with
   `hal vault create --edition ent-hsm --mode prod`.
 
@@ -356,7 +357,7 @@ Flags (mode selection and enable/update):
   --pqc-cert-ttl string       PQC workload certificate TTL (default "10s", range 10s–24h)
   --pqc-image string          Stock NGINX image with njs and PQC TLS support (pinned digest by default)
   --pqc-cluster-domain string Kubernetes Service DNS domain (default "cluster.local")
-  --agility                   Use Traditional, Hybrid key exchange, Hybrid + PQC certificate, and experimental Pure PQC HTTPS modes
+  --agility                   Enable missing PKI/PQC prerequisites and deploy four browser HTTPS modes
   --agility-image string      NGINX/OpenSSL image for crypto agility (pinned digest by default)
 
 Global flags: --debug, --dry-run, --network-subnet, --verbose
@@ -697,13 +698,15 @@ systems, Vault or Kubernetes versions, container engines or image overrides.
 
 ## Browser-facing crypto agility demo (`--agility`)
 
-This opt-in lifecycle is separate from the cert-manager `--k8s` web demo and
-the `--pqc` workload mTLS demo. It reuses their **existing CA hierarchies** but
-owns its browser issuance roles, local state in `~/.hal/crypto-agility/`,
-Kubernetes namespace `hal-crypto-agility`, and one NGINX application. Run
-`hal vault pki enable` and `hal vault pki enable --pqc` first. Both CA
-hierarchies must remain present while agility is enabled; HAL refuses their
-destructive disable/rebuild paths until `hal vault pki disable --agility`.
+This opt-in lifecycle runs the conventional PKI and `--pqc` enable flows as
+needed, then deploys the browser application. It reuses healthy CA hierarchies
+that already exist, and records ownership of any conventional PKI, PQC lab, or
+KinD cluster it creates in `~/.hal/crypto-agility/`. It owns its browser
+issuance roles, namespace `hal-crypto-agility`, and one NGINX application.
+The running Vault must already meet the Enterprise and license requirements;
+HAL does not replace an incompatible Vault deployment. Both CA hierarchies
+must remain present while agility is enabled; HAL refuses their destructive
+disable/rebuild paths until `hal vault pki disable --agility`.
 
 | Mode | URL | Certificate authentication | TLS 1.3 key exchange |
 | --- | --- | --- | --- |
@@ -729,8 +732,14 @@ hal vault pki enable --agility --dry-run
 hal vault pki enable --agility
 hal vault pki status --agility
 hal vault pki update --agility          # rotate all four browser leaves, retain CAs
-hal vault pki disable --agility         # remove only agility roles, namespace, local state
+hal vault pki disable --agility         # remove agility and prerequisites it created
 ```
+
+Disable preserves CA hierarchies and the PQC lab that existed before agility
+was enabled. It removes a KinD cluster created by this lifecycle only when no
+other user namespace remains. If another PKI integration began using the
+conventional CA, disable asks you to remove that integration first. A failed
+enable can be retried or disabled using its ownership markers.
 
 `--agility-image` overrides the pinned NGINX/OpenSSL image and
 `--kind-node-image` controls a newly created KinD node. Existing clusters

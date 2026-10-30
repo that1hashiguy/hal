@@ -359,12 +359,14 @@ Status is deployment readiness, never cryptographic proof. See
 
 ## Browser crypto agility lifecycle
 
-`hal vault pki enable|update|status|disable --agility` owns two dedicated
-browser roles on the existing conventional and PQC intermediate mounts,
-namespace `hal-crypto-agility`, and local credentials under
-`~/.hal/crypto-agility`. It requires both CA hierarchies and preserves them on
-disable. The conventional and PQC CA teardown/rebuild paths refuse to run
-while agility is active. Status is read-only; dry-run creates no state.
+`hal vault pki enable|update|status|disable --agility` provisions missing
+conventional PKI and PQC lab prerequisites and owns two dedicated browser
+roles, namespace `hal-crypto-agility`, and local credentials under
+`~/.hal/crypto-agility`. Ownership markers track which prerequisites agility
+created. Disable removes those prerequisites and preserves resources that
+already existed; an owned KinD cluster is removed only when no other user
+namespace remains. The conventional and PQC CA teardown/rebuild paths refuse
+to run while agility is active. Status is read-only; dry-run creates no state.
 Traditional uses Vault RSA + X25519; Hybrid key exchange uses Vault RSA +
 X25519MLKEM768; Hybrid + PQC certificate uses Vault ML-DSA-65 +
 X25519MLKEM768; experimental Pure PQC uses Vault ML-DSA-65 + MLKEM768.

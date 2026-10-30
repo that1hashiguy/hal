@@ -683,6 +683,19 @@ func agilityStatus(client *vaultapi.Client, dir string) error {
 		fmt.Println("Next Step: hal vault pki enable --agility")
 		return nil
 	}
+	var created []string
+	for _, entry := range [][2]string{{agilityConventionalMarker, "conventional PKI"}, {agilityPQCMarker, "PQC lab"}, {agilityClusterMarker, "KinD cluster"}} {
+		marked, err := agilityHasMarker(dir, entry[0])
+		if err != nil {
+			return err
+		}
+		if marked {
+			created = append(created, entry[1])
+		}
+	}
+	if len(created) > 0 {
+		fmt.Printf("Prerequisites created by agility: %s\n", strings.Join(created, ", "))
+	}
 	out, err := pqcKube(nil, "get", "deployment", "app", "-n", agilityNamespace, "--ignore-not-found", "-o", "json")
 	ready := false
 	if err == nil && len(bytes.TrimSpace(out)) > 0 {
@@ -734,7 +747,7 @@ func agilityDisable(client *vaultapi.Client, dir string) error {
 			return err
 		}
 	}
-	return global.RemoveCryptoAgilityState()
+	return nil
 }
 
 func runAgility(cmd *cobra.Command, args []string) error {
@@ -756,7 +769,14 @@ func runAgility(cmd *cobra.Command, args []string) error {
 		action = "update"
 	}
 	if global.DryRun {
-		fmt.Printf("[DRY RUN] Crypto agility %s: roles on existing PKI mounts, namespace %s, shared KinD ports 8094-8097. No state changed.\n", action, agilityNamespace)
+		switch action {
+		case "enable", "update":
+			fmt.Printf("[DRY RUN] Crypto agility %s: provision or reuse conventional PKI and PQC lab, then manage browser roles and namespace %s. No state changed.\n", action, agilityNamespace)
+		case "disable":
+			fmt.Printf("[DRY RUN] Crypto agility disable: remove browser roles and namespace %s, plus prerequisites this lifecycle created. No state changed.\n", agilityNamespace)
+		default:
+			fmt.Println("[DRY RUN] Crypto agility status: read-only; no state changed.")
+		}
 		return nil
 	}
 	client, err := GetHealthyClient()
@@ -779,10 +799,21 @@ func runAgility(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if action == "disable" {
+		if err := agilityCheckConventionalConsumers(dir); err != nil {
+			return err
+		}
 		if err := agilityDisable(client, dir); err != nil {
 			return err
 		}
-		fmt.Println("Crypto agility disabled; both CA hierarchies, workload demos and shared cluster preserved.")
+		if owned {
+			if err := agilityCleanupDependencies(client, dir); err != nil {
+				return err
+			}
+			if err := global.RemoveCryptoAgilityState(); err != nil {
+				return err
+			}
+		}
+		fmt.Println("Crypto agility disabled; reused PKI and shared resources preserved.")
 		return nil
 	}
 	if err := pqcPrerequisites(client); err != nil {
@@ -793,6 +824,15 @@ func runAgility(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
+	// Check PQC ownership before creating a conventional CA. A collision in
+	// either lab must not leave a newly provisioned conventional hierarchy.
+	if err := pqcCheckOwnership(client); err != nil {
+		return err
+	}
+	engine, err := global.DetectEngine()
+	if err != nil {
+		return err
+	}
 	if !owned {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
@@ -801,11 +841,20 @@ func runAgility(cmd *cobra.Command, args []string) error {
 			return err
 		}
 	}
-	if err := agilityCAs(client, dir); err != nil {
+	if err := agilityEnsureConventional(client, dir, engine); err != nil {
 		return err
 	}
-	engine, err := global.DetectEngine()
-	if err != nil {
+	clusterWasRunning := halKindClusterRunning()
+	pqcErr := agilityEnsurePQC(client, dir)
+	if !clusterWasRunning && halKindClusterRunning() {
+		if err := agilityMark(dir, agilityClusterMarker); err != nil {
+			return err
+		}
+	}
+	if pqcErr != nil {
+		return pqcErr
+	}
+	if err := agilityCAs(client, dir); err != nil {
 		return err
 	}
 	if action == "enable" && owned {
@@ -845,6 +894,6 @@ func runAgility(cmd *cobra.Command, args []string) error {
 
 func init() {
 	f := vaultPKICmd.Flags()
-	f.BoolVar(&pkiAgility, "agility", false, "Deploy traditional, hybrid, hybrid with PQC certificate, and experimental pure PQC HTTPS modes")
+	f.BoolVar(&pkiAgility, "agility", false, "Deploy four browser HTTPS modes; enable missing conventional PKI and PQC lab prerequisites")
 	f.StringVar(&agilityImage, "agility-image", pqcDefaultImage, "NGINX/OpenSSL image for the browser crypto agility demo")
 }

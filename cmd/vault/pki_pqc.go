@@ -607,6 +607,10 @@ func runPQC(cmd *cobra.Command, args []string) error {
 	if update {
 		action = "update"
 	}
+	return runPQCAction(cmd, action)
+}
+
+func runPQCAction(cmd *cobra.Command, action string) error {
 	if e := validatePQCFlags(cmd, action); e != nil {
 		return e
 	}

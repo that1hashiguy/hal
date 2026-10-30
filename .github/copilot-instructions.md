@@ -100,9 +100,11 @@ guards must preserve `hal-pqc`. Stock NGINX/OpenSSL verifies the actual peer and
 HTTPS is separate. Readiness and certificate-file parsing are never authentication
 or negotiated-key-agreement evidence. See `docs/commands/vault-pki.md`.
 
-`hal vault pki --agility` is a separate opt-in browser demo reusing the
-conventional RSA and PQC ML-DSA CA hierarchies. It owns only dedicated browser
-roles, `hal-crypto-agility` namespace, and local credentials. Its one NGINX
+`hal vault pki enable --agility` is a separate opt-in browser demo that runs
+the conventional PKI and PQC enable flows when their prerequisites are absent.
+It records which CA hierarchies and KinD cluster it created; disable removes
+those resources and preserves pre-existing or shared ones. It also owns dedicated
+browser roles, `hal-crypto-agility` namespace, and local credentials. Its one NGINX
 app uses four listeners/host ports 8094–8097 because one-port SNI did not
 enforce separate TLS groups in the pinned runtime. Traditional uses RSA/X25519;
 Hybrid key exchange uses RSA/X25519MLKEM768; Hybrid + PQC certificate uses

@@ -7,10 +7,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,6 +45,294 @@ func TestAgilityFlagsAndDryRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".hal")); !os.IsNotExist(err) {
 		t.Fatalf("dry run wrote state: %v", err)
+	}
+}
+
+func TestAgilityConventionalOwnershipAndReuse(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityMark(dir, agilityConventionalMarker); err != nil {
+		t.Fatal(err)
+	}
+	if owned, err := agilityHasMarker(dir, agilityConventionalMarker); err != nil || !owned {
+		t.Fatalf("ownership marker: %t %v", owned, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, agilityConventionalMarker), []byte("other-owner"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := agilityHasMarker(dir, agilityConventionalMarker); err == nil {
+		t.Fatal("accepted foreign ownership marker")
+	}
+	if err := os.Remove(filepath.Join(dir, agilityConventionalMarker)); err != nil {
+		t.Fatal(err)
+	}
+
+	fv, client := newFakeVault(t, map[string]fakeVaultResponse{
+		mountsKey:                  ok(`{"data":{"pki-root/":{"type":"pki"},"pki-int/":{"type":"pki"}}}`),
+		"GET /v1/pki-root/cert/ca": ok(`{"data":{"certificate":"root-cert"}}`),
+		"GET /v1/pki-int/cert/ca":  ok(`{"data":{"certificate":"inter-cert"}}`),
+	})
+	if err := agilityEnsureConventional(client, dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if owned, err := agilityHasMarker(dir, agilityConventionalMarker); err != nil || owned {
+		t.Fatalf("reused CA was claimed: %t %v", owned, err)
+	}
+	for _, call := range fv.calls {
+		if !strings.HasPrefix(call.Key, "GET ") {
+			t.Errorf("reuse mutated Vault: %s", call.Key)
+		}
+	}
+}
+
+func TestAgilityRejectsPartialUnownedConventionalPKI(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	_, client := newFakeVault(t, map[string]fakeVaultResponse{
+		mountsKey: ok(`{"data":{"pki-root/":{"type":"pki"}}}`),
+	})
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityEnsureConventional(client, dir, ""); err == nil {
+		t.Fatal("accepted partial unowned CA")
+	}
+	if owned, err := agilityHasMarker(dir, agilityConventionalMarker); err != nil || owned {
+		t.Fatalf("partial CA was claimed: %t %v", owned, err)
+	}
+}
+
+func TestAgilityBootstrapsConventionalPKI(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fv, client := newFakeVault(t, map[string]fakeVaultResponse{
+		"PUT /v1/pki-root/root/generate/internal":        ok(`{"data":{"certificate":"root-cert"}}`),
+		"PUT /v1/pki-int/intermediate/generate/internal": ok(`{"data":{"csr":"test-csr"}}`),
+		"PUT /v1/pki-root/root/sign-intermediate":        ok(`{"data":{"certificate":"inter-cert"}}`),
+		"GET /v1/pki-root/cert/ca":                       ok(`{"data":{"certificate":"root-cert"}}`),
+		"GET /v1/pki-int/cert/ca":                        ok(`{"data":{"certificate":"inter-cert"}}`),
+	})
+	fv.seq[mountsKey] = []fakeVaultResponse{
+		ok(`{"data":{}}`),
+		ok(`{"data":{"pki-root/":{"type":"pki"},"pki-int/":{"type":"pki"}}}`),
+	}
+	if err := agilityEnsureConventional(client, dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	if owned, err := agilityHasMarker(dir, agilityConventionalMarker); err != nil || !owned {
+		t.Fatalf("created CA not owned: %t %v", owned, err)
+	}
+	if pending, err := agilityHasMarker(dir, agilityConventionalPending); err != nil || pending {
+		t.Fatalf("completed CA still pending: %t %v", pending, err)
+	}
+	for _, file := range []string{"traditional-root.pem", "traditional-intermediate.pem"} {
+		if _, err := os.Stat(filepath.Join(dir, file)); err != nil {
+			t.Fatalf("missing %s: %v", file, err)
+		}
+	}
+	for _, key := range []string{"PUT /v1/pki-root/root/generate/internal", "PUT /v1/pki-int/intermediate/generate/internal", "PUT /v1/pki-root/root/sign-intermediate"} {
+		if !slices.Contains(fv.keys(), key) {
+			t.Errorf("bootstrap skipped %s", key)
+		}
+	}
+}
+
+func TestAgilityRemovesOnlyOwnedConventionalPKI(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fv, client := newFakeVault(t, map[string]fakeVaultResponse{
+		mountsKey: ok(`{"data":{"pki-root/":{"type":"pki"},"pki-int/":{"type":"pki"}}}`),
+		"GET /v1/sys/policies/acl/hal-pki-issuer": ok(fmt.Sprintf(`{"data":{"policy":%q}}`, pkiIssuerPolicy())),
+	})
+	if err := agilityRemoveConventional(client, dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range fv.calls {
+		if strings.HasPrefix(call.Key, "DELETE ") {
+			t.Fatalf("removed reused PKI: %s", call.Key)
+		}
+	}
+	if err := agilityMark(dir, agilityConventionalMarker); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityRemoveConventional(client, dir, ""); err != nil {
+		t.Fatal(err)
+	}
+	var deletes []string
+	for _, call := range fv.calls {
+		if strings.HasPrefix(call.Key, "DELETE ") {
+			deletes = append(deletes, call.Key)
+		}
+	}
+	want := []string{"DELETE /v1/sys/mounts/pki-int", "DELETE /v1/sys/mounts/pki-root", "DELETE /v1/sys/policies/acl/hal-pki-issuer"}
+	if strings.Join(deletes, ",") != strings.Join(want, ",") {
+		t.Fatalf("cleanup = %v, want %v", deletes, want)
+	}
+}
+
+func TestAgilityRefusesChangedConventionalCA(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityMark(dir, agilityConventionalMarker); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "traditional-root.pem"), []byte("original-root\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fv, client := newFakeVault(t, map[string]fakeVaultResponse{
+		mountsKey:                  ok(`{"data":{"pki-root/":{"type":"pki"},"pki-int/":{"type":"pki"}}}`),
+		"GET /v1/pki-root/cert/ca": ok(`{"data":{"certificate":"replacement-root"}}`),
+	})
+	if err := agilityRemoveConventional(client, dir, ""); err == nil {
+		t.Fatal("removed changed CA")
+	}
+	for _, call := range fv.calls {
+		if strings.HasPrefix(call.Key, "DELETE ") {
+			t.Fatalf("changed CA cleanup mutated Vault: %s", call.Key)
+		}
+	}
+}
+
+func TestAgilitySkipsPQCNotCreatedAfterFailedEnable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityMark(dir, agilityPQCMarker); err != nil {
+		t.Fatal(err)
+	}
+	fv, client := newFakeVault(t, map[string]fakeVaultResponse{mountsKey: ok(`{"data":{}}`)})
+	if err := agilityRemovePQC(client, dir); err != nil {
+		t.Fatal(err)
+	}
+	for _, call := range fv.calls {
+		if strings.HasPrefix(call.Key, "DELETE ") {
+			t.Fatalf("failed enable deleted unrelated PQC resources: %s", call.Key)
+		}
+	}
+}
+
+func TestAgilityUpdateDelegatesPQCEnable(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	_, client := newFakeVault(t, map[string]fakeVaultResponse{mountsKey: ok(`{"data":{}}`)})
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	oldEnable, oldDisable, oldUpdate, oldDry := pkiEnable, pkiDisable, pkiUpdate, global.DryRun
+	pkiEnable, pkiDisable, pkiUpdate, global.DryRun = false, false, true, true
+	t.Cleanup(func() {
+		pkiEnable, pkiDisable, pkiUpdate, global.DryRun = oldEnable, oldDisable, oldUpdate, oldDry
+	})
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout := os.Stdout
+	os.Stdout = writer
+	err = agilityEnsurePQC(client, dir)
+	os.Stdout = stdout
+	_ = writer.Close()
+	output, readErr := io.ReadAll(reader)
+	_ = reader.Close()
+	if err != nil || readErr != nil {
+		t.Fatalf("PQC delegation: %v, capture: %v", err, readErr)
+	}
+	if !strings.Contains(string(output), "[DRY RUN] PQC enable:") {
+		t.Fatalf("delegated wrong PQC action: %s", output)
+	}
+	if !pkiUpdate || pkiEnable || pkiDisable {
+		t.Fatal("delegation changed outer lifecycle flags")
+	}
+	if owned, err := agilityHasMarker(dir, agilityPQCMarker); err != nil || !owned {
+		t.Fatalf("new PQC lab was not marked as owned: %t %v", owned, err)
+	}
+}
+
+func TestAgilityClusterCleanupPreservesOtherNamespaces(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bin := t.TempDir()
+	t.Setenv("PATH", bin)
+	deleteLog := filepath.Join(t.TempDir(), "deleted")
+	namespaces := filepath.Join(t.TempDir(), "namespaces.json")
+	t.Setenv("HAL_TEST_CLUSTER_DELETE", deleteLog)
+	t.Setenv("HAL_TEST_CLUSTER_NAMESPACES", namespaces)
+	for name, script := range map[string]string{
+		"kind":    "#!/bin/sh\nif [ \"$1\" = get ]; then echo kind; exit 0; fi\nif [ \"$1\" = delete ]; then echo deleted >> \"$HAL_TEST_CLUSTER_DELETE\"; exit 0; fi\nexit 1\n",
+		"kubectl": "#!/bin/sh\n/bin/cat \"$HAL_TEST_CLUSTER_NAMESPACES\"\n",
+	} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dir, err := agilityStateDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityMark(dir, agilityClusterMarker); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(namespaces, []byte(`{"items":[{"metadata":{"name":"default"}},{"metadata":{"name":"app1"}}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityRemoveCluster(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(deleteLog); !os.IsNotExist(err) {
+		t.Fatalf("deleted shared cluster: %v", err)
+	}
+	if err := os.WriteFile(namespaces, []byte(`{"items":[{"metadata":{"name":"default"}},{"metadata":{"name":"kube-system"}}]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := agilityRemoveCluster(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(deleteLog); err != nil {
+		t.Fatalf("did not delete owned exclusive cluster: %v", err)
 	}
 }
 

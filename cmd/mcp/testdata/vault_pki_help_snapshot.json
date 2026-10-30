@@ -9,7 +9,7 @@
       "name": "--acme-cert-ttl string"
     },
     {
-      "description": "Deploy traditional, hybrid, hybrid with PQC certificate, and experimental pure PQC HTTPS modes",
+      "description": "Deploy four browser HTTPS modes; enable missing conventional PKI and PQC lab prerequisites",
       "name": "--agility"
     },
     {

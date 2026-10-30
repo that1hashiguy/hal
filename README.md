@@ -612,8 +612,9 @@ See [setup, browser trust, tests and runtime findings](docs/commands/vault-pki.m
 
 ### Browser crypto agility demo
 
-After enabling the conventional PKI and `--pqc` CA hierarchies, run
-`hal vault pki enable --agility`. One app serves four HTTPS modes:
+With a running, licensed Vault Enterprise 2.2.0+ instance, run
+`hal vault pki enable --agility`. HAL enables conventional PKI and the PQC
+lab when needed, then serves four HTTPS modes in one app:
 Traditional (`traditional.agility.localhost:8094`, RSA + X25519), Hybrid key
 exchange (`hybrid.agility.localhost:8095`, RSA + X25519MLKEM768), Hybrid + PQC
 certificate (`pqc.agility.localhost:8096`, ML-DSA-65 + X25519MLKEM768), and
@@ -626,7 +627,9 @@ connection, TLS, and first-byte timings when available. For 30+ fresh,
 verified full-handshake samples per mode with raw CSV and median/p95 results,
 run `python3 scripts/benchmark_crypto_agility.py --runs 30`. These are local
 measurements, not universal algorithm rankings. Run
-`hal vault pki status|update|disable --agility` for its independent lifecycle.
+`hal vault pki status|update|disable --agility` for its lifecycle. Disable
+removes the prerequisites this agility run created and preserves pre-existing
+CA hierarchies and shared cluster users.
 The `hal status` and `hal vault status` views also show deployment readiness.
 Explicitly trust the conventional root to inspect Traditional and Hybrid key
 exchange in Chrome, and the PQC root for Hybrid + PQC certificate. Although

@@ -323,8 +323,11 @@ See `docs/commands/vault-pki.md` for the workflow, ownership and integration tes
 
 ## Browser-facing PKI crypto agility
 
-`hal vault pki [enable|update|disable|status] --agility` is opt-in and
-requires the existing conventional and PQC CA hierarchies. It issues dedicated
+`hal vault pki [enable|update|disable|status] --agility` is opt-in and requires
+a running, licensed Vault Enterprise 2.2.0+ with ML-DSA support. Enable runs
+the conventional PKI and PQC lab enable flows when needed. Ownership markers
+track newly created CAs, PQC workloads, and KinD cluster so disable removes
+those resources while preserving pre-existing and shared resources. It issues dedicated
 seven-day browser leaves with exact DNS SAN and serverAuth EKU. One NGINX
 application uses four distinct DNS/SNI names and four listeners: Traditional
 RSA/X25519 on 8094, Hybrid key exchange RSA/X25519MLKEM768 on 8095, Hybrid
@@ -334,7 +337,7 @@ group enforcement test. The app reports configured certificate identity
 separately from server-observed TLS; Chrome trust requires manual import of
 both private roots. `--agility-image` overrides the NGINX image. The lab
 owns namespace `hal-crypto-agility`, local state, and two browser roles,
-preserves both CA hierarchies and both existing demos on disable, and guards
+preserves pre-existing CA hierarchies and demos on disable, and guards
 upstream CA teardown while active. An old KinD cluster uses a four-port
 loopback port-forward. Chrome 150+ supports ML-DSA in private PKI; no public
 trust is claimed. `get_vault_pki_status` adds read-only
